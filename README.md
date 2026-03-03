@@ -6,8 +6,8 @@ A machine learning–based stock trading prediction system built with SimFin fin
 
 | Name | Role |
 |------|------|
-| *Add your name* | ETL / Data Engineering |
-| *Add your name* | ML Model |
+| *Marian Garabana* | ETL / Data Engineering |
+| *Jorge Villaplana* | ML Model |
 | *Add your name* | API Wrapper |
 | *Add your name* | Streamlit App |
 
