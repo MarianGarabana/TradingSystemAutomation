@@ -41,11 +41,42 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     if len(df) < 20:
         raise ValueError(f"Not enough rows ({len(df)}) to compute a 20-day moving average.")
     df = df.copy()
+
+    # Daily percentage return: how much the price moved today vs yesterday
     df['Return'] = df['Close'].pct_change()
-    df['MA5'] = df['Close'].rolling(5).mean()
-    df['MA20'] = df['Close'].rolling(20).mean()
+
+    # Moving averages: smooth out noise to reveal the underlying trend
+    df['MA5'] = df['Close'].rolling(5).mean()   # short-term trend (1 week)
+    df['MA20'] = df['Close'].rolling(20).mean()  # medium-term trend (1 month)
+
+    # Volume change: detects unusual trading activity
     df['Volume_Change'] = df['Volume'].pct_change()
+
+    # Target: 1 if tomorrow's close is higher than today's, 0 otherwise (what the model predicts)
     df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
+
+    # RSI: momentum indicator — >70 means overbought (likely to fall), <30 means oversold (likely to rise)
+    delta = df['Close'].diff()
+    gain = delta.clip(lower=0).rolling(14).mean()
+    loss = -delta.clip(upper=0).rolling(14).mean()
+    df['RSI'] = 100 - (100 / (1 + gain / loss))
+
+    # MACD: trend indicator — when MACD crosses above its signal line, bullish signal; below, bearish
+    ema12 = df['Close'].ewm(span=12, adjust=False).mean()
+    ema26 = df['Close'].ewm(span=26, adjust=False).mean()
+    df['MACD'] = ema12 - ema26
+    df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+
+    # Bollinger Bands: volatility indicator — price near upper band = overbought, near lower band = oversold
+    std20 = df['Close'].rolling(20).std()
+    df['BB_Upper'] = df['MA20'] + 2 * std20
+    df['BB_Lower'] = df['MA20'] - 2 * std20
+
+    # Lag features: give the model memory of recent price movements
+    df['Return_Lag1'] = df['Return'].shift(1)  # yesterday's return
+    df['Return_Lag2'] = df['Return'].shift(2)  # 2 days ago
+
+    # Drop rows with NaN introduced by rolling windows and shifts
     df = df.dropna().reset_index(drop=True)
     return df
 
