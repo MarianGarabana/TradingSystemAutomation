@@ -16,25 +16,41 @@ load_dotenv()
 
 
 def fetch_data(ticker: str) -> pd.DataFrame:
-    """Download raw financial data for a given ticker from SimFin."""
-    # TODO: implement using PySimFin wrapper or simfin library
-    raise NotImplementedError("fetch_data not yet implemented")
+    raw_path = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "us-shareprices-daily.csv")
+    if not os.path.exists(raw_path):
+        raise FileNotFoundError(f"Raw data file not found: {raw_path}")
+    df = pd.read_csv(raw_path, sep=';')
+    result = df[df['Ticker'] == ticker]
+    if result.empty:
+        raise ValueError(f"Ticker '{ticker}' not found in the dataset.")
+    return result
+
 
 
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Clean raw data: handle missing values, fix dtypes, sort by date."""
-    # TODO: implement cleaning logic
-    raise NotImplementedError("clean_data not yet implemented")
+    df = df.copy()
+    df['Date'] = pd.to_datetime(df['Date'])
+    df = df.sort_values('Date').reset_index(drop=True)
+    df['Dividend'] = df['Dividend'].fillna(0)
+    df = df.drop(columns=['SimFinId'])
+    return df
+
 
 
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Add derived features used by the ML model."""
-    # TODO: implement feature engineering
-    raise NotImplementedError("engineer_features not yet implemented")
+    if len(df) < 20:
+        raise ValueError(f"Not enough rows ({len(df)}) to compute a 20-day moving average.")
+    df = df.copy()
+    df['Return'] = df['Close'].pct_change()
+    df['MA5'] = df['Close'].rolling(5).mean()
+    df['MA20'] = df['Close'].rolling(20).mean()
+    df['Volume_Change'] = df['Volume'].pct_change()
+    df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
+    df = df.dropna().reset_index(drop=True)
+    return df
 
 
 def save_processed(df: pd.DataFrame, ticker: str) -> str:
-    """Save the processed DataFrame to data/processed/<ticker>.csv."""
     out_dir = os.path.join(os.path.dirname(__file__), "..", "data", "processed")
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"{ticker}.csv")
@@ -45,11 +61,15 @@ def save_processed(df: pd.DataFrame, ticker: str) -> str:
 
 def run(ticker: str) -> pd.DataFrame:
     print(f"Running ETL for {ticker}...")
-    raw = fetch_data(ticker)
-    cleaned = clean_data(raw)
-    featured = engineer_features(cleaned)
-    save_processed(featured, ticker)
-    return featured
+    try:
+        raw = fetch_data(ticker)
+        cleaned = clean_data(raw)
+        featured = engineer_features(cleaned)
+        save_processed(featured, ticker)
+        return featured
+    except (FileNotFoundError, ValueError) as e:
+        print(f"ETL failed for {ticker}: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
