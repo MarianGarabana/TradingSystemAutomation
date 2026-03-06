@@ -33,5 +33,8 @@ ENV/
 .idea/
 *.swp
 
+# --- Claude Code (AI tool local memory) ---
+.claude/
+
 # --- Logs ---
 *.log
