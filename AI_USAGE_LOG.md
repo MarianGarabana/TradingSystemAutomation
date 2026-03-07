@@ -29,11 +29,11 @@ This file documents all use of AI tools (ChatGPT, Claude, Copilot, etc.) during 
 **What we changed:** Verified and re-ran ETL for all 5 tickers to regenerate processed CSVs with the full 17-feature schema.
 
 ### 2026-03-07 — Marian Garabana — Claude (claude-sonnet-4-6)
-**Task:** Redesign Home page and make ETL support multiple tickers
-**Prompt (summary):** Asked Claude to redesign `app/Home.py` with a Robinhood-style lime green + black theme, and update `etl/etl.py` to handle missing fundamentals.
-**Output summary:** Claude rewrote `Home.py` and a searchable ticker table loaded from `data/processed/`. It helped me to create the `config.toml` file that helped to change the theme to the colors we wanted to use. Updated `etl/etl.py` so fundamentals are optional (returns `None` instead of crashing).
-**What we used:** All changes kept.
-**What we changed:** Rejected some edits half-way to request explanations of the code changes.
+**Task:** Redesign Home, Go Live, and Backtesting Streamlit pages
+**Prompt (summary):** Asked Claude to redesign `app/Home.py` with a Robinhood-style lime green + black theme, and update `etl/etl.py` to handle missing fundamentals. Asked Claude to help me redesign the Streamlit pages charts (`go_live.py` and `backtesting.py`). Requested that all changes be commented with brief explanations of why and how each part works.
+**Output summary:** Claude rewrote `Home.py` and a searchable ticker table loaded from `data/processed/`. It helped me to create the `config.toml` file that helped to change the theme to the colors we wanted to use. Updated `etl/etl.py` so fundamentals are optional (returns `None` instead of crashing). Claude first performed a full gap analysis (ETL done, API wrapper empty, models untrained, both app pages stubs, no deployment, no executive summary). Then it implemented `go_live.py`: model loading that works with or without a .pkl, price chart with MA5/MA20/Bollinger Bands, RSI chart with overbought/oversold zones, and MACD chart with colour-coded histogram. It also fixed `backtesting.py`: ticker + date-range controls, simulation of a $10k portfolio (invested on BUY signals vs. cash on SELL/HOLD), buy-and-hold comparison, cumulative return chart, rolling 30-day accuracy chart, and a signal history table. Both pages degrade when no trained model is present by using an "Always Buy" baseline instead so I was able to see the charts regardless of not having a ML model implemented yet. 
+**What we used:** All changes kept. The feature column list (`FEATURE_COLS`), signal logic (imported from `model/strategy.py`), and chart styling (dark theme matching `config.toml`) were kept.
+**What we changed:** I requested revisions and guidance to help me implement the changes and explanations and reasonings of the changes implemented by Claude.
 
 ### 2026-03-03 — Marian Garabana — Claude (claude-sonnet-4-6)
 **Task:** Scaffold repository structure
