@@ -121,21 +121,36 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def fetch_fundamentals(ticker: str) -> pd.DataFrame:
-    """Load and combine quarterly fundamental data for a single ticker."""
+def fetch_fundamentals(ticker: str) -> pd.DataFrame | None:
+    """Load and combine quarterly fundamental data for a single ticker.
+
+    Returns None if the quarterly CSV files are not present in data/raw/,
+    so the ETL can fall back to price-only mode.
+    """
     data_dir = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
 
+    income_path   = os.path.join(data_dir, "us-income-quarterly.csv")
+    balance_path  = os.path.join(data_dir, "us-balance-quarterly.csv")
+    cashflow_path = os.path.join(data_dir, "us-cashflow-quarterly.csv")
+
+    # Check if all three quarterly files exist before trying to read them.
+    # If any are missing (e.g. not yet downloaded from SimFin), we skip
+    # the fundamentals step and continue with price data only.
+    if not all(os.path.exists(p) for p in [income_path, balance_path, cashflow_path]):
+        logger.warning("Quarterly fundamental files not found — running in price-only mode.")
+        return None
+
     income = pd.read_csv(
-        os.path.join(data_dir, "us-income-quarterly.csv"), sep=';',
+        income_path, sep=';',
         usecols=['Ticker', 'Publish Date', 'Revenue', 'Gross Profit',
                  'Operating Income (Loss)', 'Net Income'],
     )
     balance = pd.read_csv(
-        os.path.join(data_dir, "us-balance-quarterly.csv"), sep=';',
+        balance_path, sep=';',
         usecols=['Ticker', 'Publish Date', 'Total Assets', 'Total Liabilities', 'Total Equity'],
     )
     cashflow = pd.read_csv(
-        os.path.join(data_dir, "us-cashflow-quarterly.csv"), sep=';',
+        cashflow_path, sep=';',
         usecols=['Ticker', 'Publish Date', 'Net Cash from Operating Activities'],
     )
 
@@ -144,8 +159,12 @@ def fetch_fundamentals(ticker: str) -> pd.DataFrame:
     balance  = balance[balance['Ticker'] == ticker].copy()
     cashflow = cashflow[cashflow['Ticker'] == ticker].copy()
 
+    # If this ticker has no fundamental records at all, skip gracefully
+    # instead of crashing — some tickers in the price file may not have
+    # corresponding quarterly statements.
     if income.empty:
-        raise ValueError(f"No fundamental data found for ticker '{ticker}'.")
+        logger.warning(f"No fundamental data found for '{ticker}' — running in price-only mode.")
+        return None
 
     return _compute_fundamental_features(income, balance, cashflow)
 
@@ -220,14 +239,22 @@ def save_processed(df: pd.DataFrame, ticker: str) -> str:
     return out_path
 
 
-def run(ticker: str) -> pd.DataFrame:
+def run(ticker: str) -> pd.DataFrame | None:
     logger.info(f"Running ETL for {ticker}...")
     try:
-        raw         = fetch_data(ticker)
-        cleaned     = clean_data(raw)
+        raw          = fetch_data(ticker)
+        cleaned      = clean_data(raw)
         fundamentals = fetch_fundamentals(ticker)
-        enriched    = merge_fundamentals(cleaned, fundamentals)
-        featured    = engineer_features(enriched)
+
+        # Only merge fundamentals if they were successfully loaded.
+        # If fundamentals is None (files missing or ticker not found),
+        # we skip the merge and use price data only.
+        if fundamentals is not None:
+            enriched = merge_fundamentals(cleaned, fundamentals)
+        else:
+            enriched = cleaned
+
+        featured = engineer_features(enriched)
         save_processed(featured, ticker)
 
         # Data quality summary: quick sanity check after processing
@@ -241,12 +268,17 @@ def run(ticker: str) -> pd.DataFrame:
         )
         return featured
     except (FileNotFoundError, ValueError) as e:
+        # Log the error but return None instead of crashing the whole process,
+        # so --all mode can continue with the remaining tickers.
         logger.error(f"ETL failed for {ticker}: {e}")
-        sys.exit(1)
+        return None
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ETL pipeline for a stock ticker.")
     parser.add_argument("--ticker", required=True, help="Stock ticker symbol, e.g. AAPL")
     args = parser.parse_args()
-    run(args.ticker)
+
+    result = run(args.ticker)
+    if result is None:
+        sys.exit(1)

@@ -28,6 +28,13 @@ This file documents all use of AI tools (ChatGPT, Claude, Copilot, etc.) during 
 **What we used:** All changes kept — fundamental enrichment logic, Market_Cap feature, regression Target definition, and the data dictionary markdown.
 **What we changed:** Verified and re-ran ETL for all 5 tickers to regenerate processed CSVs with the full 17-feature schema.
 
+### 2026-03-07 — Marian Garabana — Claude (claude-sonnet-4-6)
+**Task:** Redesign Home page and make ETL support multiple tickers
+**Prompt (summary):** Asked Claude to redesign `app/Home.py` with a Robinhood-style lime green + black theme, and update `etl/etl.py` to handle missing fundamentals.
+**Output summary:** Claude rewrote `Home.py` and a searchable ticker table loaded from `data/processed/`. It helped me to create the `config.toml` file that helped to change the theme to the colors we wanted to use. Updated `etl/etl.py` so fundamentals are optional (returns `None` instead of crashing).
+**What we used:** All changes kept.
+**What we changed:** Rejected some edits half-way to request explanations of the code changes.
+
 ### 2026-03-03 — Marian Garabana — Claude (claude-sonnet-4-6)
 **Task:** Scaffold repository structure
 **Prompt (summary):** Asked Claude to generate the full folder/file skeleton for the trading system project including README, .gitignore, requirements.txt, placeholder source files, and .env.example.
