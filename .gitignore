@@ -35,6 +35,7 @@ ENV/
 
 # --- Claude Code (AI tool local memory) ---
 .claude/
+PROJECT_MEMORY.md
 
 # --- Logs ---
 *.log
