@@ -34,7 +34,7 @@ import streamlit as st
 # Add the project root to sys.path so we can import from model/strategy.py.
 # os.path.dirname(__file__) is app/pages/, so going up two levels reaches the root.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from model.strategy import Signal, prediction_to_signal
+from model.strategy import Signal, prediction_to_signal, is_fallback_ticker, get_feature_cols
 
 st.set_page_config(page_title="Go Live", page_icon="🚀", layout="wide")
 
@@ -44,15 +44,9 @@ st.set_page_config(page_title="Go Live", page_icon="🚀", layout="wide")
 PROCESSED_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "processed")
 TRAINED_DIR   = os.path.join(os.path.dirname(__file__), "..", "..", "model", "trained")
 
-# Feature columns used during model training (from notebooks/ml_exploration.ipynb).
-# Raw price columns (Open, Close, etc.) are intentionally excluded because they are
-# non-stationary — using them would cause the model to overfit to absolute price levels
-# rather than learning meaningful patterns.
-FEATURE_COLS = [
-    "Return", "MA5", "MA20", "Volume_Change", "RSI",
-    "MACD", "MACD_Signal", "BB_Upper", "BB_Lower",
-    "Return_Lag1", "Return_Lag2",
-]
+# Feature columns are defined in model/strategy.py (STANDARD_FEATURE_COLS /
+# FALLBACK_FEATURE_COLS) and selected at runtime via get_feature_cols(ticker).
+# This ensures the inference schema always matches what was used at training time.
 
 # Visual style for each trading signal so the UI is consistent everywhere.
 SIGNAL_STYLE = {
@@ -92,13 +86,16 @@ def load_processed(ticker: str) -> pd.DataFrame:
 
 
 def load_model(ticker: str):
-    """Try to load the trained sklearn pipeline for a ticker.
+    """Load the correct pooled model for the given ticker.
 
-    Returns the model object if the .pkl file exists, otherwise None.
-    We return None (instead of raising) so the page degrades gracefully
-    when the ML teammate hasn't trained the model yet.
+    - Standard tickers → model_pooled.pkl          (16 features)
+    - Fallback tickers → model_pooled_fallback.pkl  (11 features, no fundamentals)
+
+    Returns None if the .pkl file doesn't exist yet.
+    Run:  python model/train.py --all
     """
-    path = os.path.join(TRAINED_DIR, f"model_{ticker}.pkl")
+    filename = "model_pooled_fallback.pkl" if is_fallback_ticker(ticker) else "model_pooled.pkl"
+    path = os.path.join(TRAINED_DIR, filename)
     if os.path.exists(path):
         return joblib.load(path)
     return None
@@ -227,7 +224,7 @@ ticker = st.selectbox("Select ticker", tickers)
 df = load_processed(ticker)
 last = df.iloc[-1]   # the most recent trading day row
 
-# Try loading the trained model — returns None if .pkl doesn't exist yet.
+# Load the correct pooled model for this ticker (standard or fallback schema).
 model = load_model(ticker)
 
 # ── Section 1: Signal ──────────────────────────────────────────────────────────
@@ -237,7 +234,7 @@ if model is not None:
     # Build a single-row DataFrame of the latest feature values.
     # Using a DataFrame (not a plain array) preserves column names, which
     # sklearn pipelines require to match the training schema exactly.
-    X_latest = pd.DataFrame([last[FEATURE_COLS]])
+    X_latest = pd.DataFrame([last[get_feature_cols(ticker)]])
     raw_pred = model.predict(X_latest)[0]
 
     # Support both regression models (output = float, e.g. predicted return)
@@ -277,8 +274,8 @@ if model is not None:
 else:
     # Model file not found — app still works, just without a prediction.
     st.warning(
-        f"No trained model found for **{ticker}**. "
-        f"Run `python model/train.py --ticker {ticker}` to generate one. "
+        "No trained model found. "
+        "Run `python model/train.py --all` to generate one. "
         "Technical indicators are shown below in the meantime."
     )
 

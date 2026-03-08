@@ -25,7 +25,7 @@ import streamlit as st
 
 # Add project root to sys.path so we can import model/strategy.py.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from model.strategy import prediction_to_signal
+from model.strategy import is_fallback_ticker, get_feature_cols
 
 st.set_page_config(page_title="Backtesting", page_icon="🔍", layout="wide")
 
@@ -34,12 +34,9 @@ st.set_page_config(page_title="Backtesting", page_icon="🔍", layout="wide")
 PROCESSED_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "processed")
 TRAINED_DIR   = os.path.join(os.path.dirname(__file__), "..", "..", "model", "trained")
 
-# Same feature columns as go_live.py — must match what was used at training time.
-FEATURE_COLS = [
-    "Return", "MA5", "MA20", "Volume_Change", "RSI",
-    "MACD", "MACD_Signal", "BB_Upper", "BB_Lower",
-    "Return_Lag1", "Return_Lag2",
-]
+# Feature columns are defined in model/strategy.py and selected at runtime via
+# get_feature_cols(ticker) — standard (16) for most tickers, fallback (11) for
+# BAC/GS/JPM/MA/V which lack fundamental data.
 
 INITIAL_CAPITAL = 10_000.0   # starting portfolio value in USD for simulation
 
@@ -67,14 +64,22 @@ def load_processed(ticker: str) -> pd.DataFrame:
 
 
 def load_model(ticker: str):
-    """Load trained model if available, else return None."""
-    path = os.path.join(TRAINED_DIR, f"model_{ticker}.pkl")
+    """Load the correct pooled model for the given ticker.
+
+    - Standard tickers → model_pooled.pkl          (16 features)
+    - Fallback tickers → model_pooled_fallback.pkl  (11 features, no fundamentals)
+
+    Returns None if the .pkl file doesn't exist yet.
+    Run:  python model/train.py --all
+    """
+    filename = "model_pooled_fallback.pkl" if is_fallback_ticker(ticker) else "model_pooled.pkl"
+    path = os.path.join(TRAINED_DIR, filename)
     if os.path.exists(path):
         return joblib.load(path)
     return None
 
 
-def run_backtest(df: pd.DataFrame, model) -> pd.DataFrame:
+def run_backtest(df: pd.DataFrame, model, feature_cols: list[str]) -> tuple[pd.DataFrame, str]:
     """Run the strategy simulation on the filtered DataFrame.
 
     Parameters
@@ -101,7 +106,7 @@ def run_backtest(df: pd.DataFrame, model) -> pd.DataFrame:
     if model is not None:
         # Run the full feature matrix through the trained pipeline.
         # We use only the rows that have all feature columns present.
-        X = df[FEATURE_COLS]
+        X = df[feature_cols]
         raw_preds = model.predict(X)
 
         # Handle both regression models (float output) and classifiers (int output).
@@ -234,8 +239,9 @@ if df_slice.empty:
     st.error("No data in the selected date range.")
     st.stop()
 
-# Drop rows where the target is NaN (last row after shift in ETL has no next-day return).
-df_slice = df_slice.dropna(subset=["Target"] + FEATURE_COLS).reset_index(drop=True)
+# Drop rows where the target or any required feature is NaN.
+# Uses the correct feature list for this ticker (standard 16 or fallback 11).
+df_slice = df_slice.dropna(subset=["Target"] + get_feature_cols(ticker)).reset_index(drop=True)
 
 if len(df_slice) < 10:
     st.error("Not enough rows to run a backtest. Widen the date range.")
@@ -245,12 +251,12 @@ model = load_model(ticker)
 
 if model is None:
     st.warning(
-        f"No trained model found for **{ticker}** — showing **Baseline (Always Buy)** strategy. "
-        f"Run `python model/train.py --ticker {ticker}` to compare against the ML model."
+        "No trained model found — showing **Baseline (Always Buy)** strategy. "
+        "Run `python model/train.py --all` to compare against the ML model."
     )
 
-# Run the simulation.
-result_df, strategy_label = run_backtest(df_slice, model)
+# Run the simulation using the correct feature schema for this ticker.
+result_df, strategy_label = run_backtest(df_slice, model, get_feature_cols(ticker))
 
 # ── Summary metrics ────────────────────────────────────────────────────────────
 st.subheader("Summary")
