@@ -7,7 +7,9 @@ Usage:
 Improvements over baseline:
 - Uses Adj. Close instead of Close for all price-based calculations,
   which accounts for stock splits and dividends for historical accuracy.
-- Filters out extreme daily returns (>50%) which are likely data errors.
+- Handles extreme price errors (|return| > 50%) by nullifying the price and
+  forward-filling, preserving time-series continuity. Return and Volume_Change
+  are then winsorized at the 1st/99th percentile to bound outlier influence.
 - Uses Python's logging module instead of print() for structured output.
 - Enriches price data with quarterly fundamental ratios (point-in-time merge,
   no look-ahead bias) from income, balance sheet, and cash flow statements.
@@ -53,14 +55,21 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     df['Dividend'] = df['Dividend'].fillna(0)
     df = df.drop(columns=['SimFinId'])
 
-    # Remove outliers: daily returns above 50% are almost certainly data errors
-    # or unadjusted stock splits — keeping them would distort all rolling features.
-    raw_len = len(df)
+    # Detect price errors: daily returns above 50% are almost certainly data errors
+    # or unadjusted stock splits. Instead of dropping the row (which creates a phantom
+    # multi-day return in the next pct_change()), we set Adj. Close to NaN and forward-fill.
+    # This preserves time-series continuity — all rows stay in the DataFrame with no gaps,
+    # so Return, Return_Lag1, Return_Lag2 are never corrupted by artificial multi-day spans.
     daily_return = df['Adj. Close'].pct_change()
-    df = df[daily_return.abs() < 0.5].reset_index(drop=True)
-    removed = raw_len - len(df)
-    if removed > 0:
-        logger.warning(f"Removed {removed} rows with extreme daily returns (>50%).")
+    mask = daily_return.abs() > 0.5
+    n_errors = int(mask.sum())
+    if n_errors > 0:
+        logger.warning(
+            f"Detected {n_errors} price error(s) with |return| > 50% — "
+            "nullified and forward-filled to preserve time-series continuity."
+        )
+        df.loc[mask, 'Adj. Close'] = np.nan
+        df['Adj. Close'] = df['Adj. Close'].ffill()
 
     return df
 
@@ -84,6 +93,15 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # Volume change: detects unusual trading activity
     df['Volume_Change'] = df['Volume'].pct_change()
+
+    # Winsorize Return and Volume_Change at the 1st / 99th percentile.
+    # Even after forward-filling price errors, earnings-day spikes and thin-volume
+    # days can produce extreme percentage changes. Clipping bounds their influence
+    # on linear models and lag features while keeping all rows in the dataset.
+    for col in ('Return', 'Volume_Change'):
+        lo = df[col].quantile(0.01)
+        hi = df[col].quantile(0.99)
+        df[col] = df[col].clip(lo, hi)
 
     # Market Cap: total market value = price × shares outstanding.
     # Changes daily with price — a dynamic proxy for company size.
@@ -116,8 +134,41 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df['Return_Lag1'] = df['Return'].shift(1)  # yesterday's return
     df['Return_Lag2'] = df['Return'].shift(2)  # 2 days ago
 
-    # Drop rows with NaN introduced by rolling windows and shifts
-    df = df.dropna().reset_index(drop=True)
+    # ── Volatility-normalised features for cross-stock comparability ──────────
+    # Arithmetic returns (Return above) differ in scale across stocks:
+    # a low-vol stock like KO swings ±0.5%/day while TSLA swings ±3%/day.
+    # Training a pooled model on raw returns lets high-vol stocks dominate.
+    # The three features below put every ticker on the same risk-adjusted scale.
+
+    # Log return: log(P_t / P_{t-1}).  Additive over time, more Gaussian than
+    # arithmetic returns, and theoretically correct for multi-period compounding.
+    df['Log_Return'] = np.log(df['Adj. Close'] / df['Adj. Close'].shift(1))
+
+    # 20-day rolling realised volatility: standard deviation of daily log returns
+    # over the past month.  Captures the current volatility regime for each stock.
+    df['Volatility_20'] = df['Log_Return'].rolling(20).std()
+
+    # Volatility-normalised return: log return ÷ recent volatility.
+    # Analogous to a daily Z-score — a value of +1 means "rose one standard
+    # deviation today".  Directly comparable across KO, TSLA, NVDA, etc.
+    df['Return_norm'] = df['Log_Return'] / df['Volatility_20']
+
+    # Lagged normalised returns: give the model memory of recent risk-adjusted moves
+    df['Return_norm_Lag1'] = df['Return_norm'].shift(1)
+    df['Return_norm_Lag2'] = df['Return_norm'].shift(2)
+
+    # Drop only rows where price-derived columns are NaN (introduced by rolling windows
+    # and shifts above).  Fundamental columns (Gross_Margin, etc.) are intentionally
+    # excluded here: they can legitimately be NaN for tickers whose revenue structure
+    # makes certain ratios undefined (e.g. Visa/Mastercard have no "Gross Profit" line).
+    # Those NaN rows are excluded from ML training in train.py via its own dropna(subset=).
+    price_required = [
+        "Return", "MA5", "MA20", "Volume_Change", "Market_Cap", "Target",
+        "RSI", "MACD", "MACD_Signal", "BB_Upper", "BB_Lower",
+        "Return_Lag1", "Return_Lag2",
+        "Log_Return", "Volatility_20", "Return_norm", "Return_norm_Lag1", "Return_norm_Lag2",
+    ]
+    df = df.dropna(subset=price_required).reset_index(drop=True)
     return df
 
 
