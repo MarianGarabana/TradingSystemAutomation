@@ -8,6 +8,13 @@ This module is the single source of truth for:
 
 Both model/train.py and app/pages/ import from here to guarantee that the
 feature schema used at training time always matches the schema used at inference.
+
+NOTE — Fundamental features (Gross_Margin, Operating_Margin, Net_Margin,
+Debt_to_Equity, Operating_CF_Ratio) are commented out of STANDARD_FEATURE_COLS
+because the quarterly SimFin CSVs are not available locally.  Both schemas use
+the same 11 price + volatility features for now.  When the API wrapper is
+integrated and supplies live fundamental data, restore the commented block and
+retrain with model/train.py --all.
 """
 
 from enum import Enum
@@ -15,16 +22,16 @@ from enum import Enum
 
 # ── Feature schemas ────────────────────────────────────────────────────────────
 
-# Standard schema: price-based + volatility-normalised + fundamental ratios.
-# Used for all 25 tickers that have quarterly fundamental data available.
+# Standard schema: price-based + volatility-normalised features.
+# Fundamental ratios are commented out until quarterly data is available via API.
 STANDARD_FEATURE_COLS = [
     # Price-based (6)
     "MA5", "MA20", "Volume_Change", "Market_Cap", "RSI", "MACD",
     # Volatility-normalised (5)
     "Log_Return", "Volatility_20", "Return_norm", "Return_norm_Lag1", "Return_norm_Lag2",
-    # Fundamental (5) — quarterly, point-in-time merged
-    "Gross_Margin", "Operating_Margin", "Net_Margin",
-    "Debt_to_Equity", "Operating_CF_Ratio",
+    # Fundamental (5) — restore when quarterly data is available via the API:
+    # "Gross_Margin", "Operating_Margin", "Net_Margin",
+    # "Debt_to_Equity", "Operating_CF_Ratio",
 ]
 
 # Fallback schema: price + volatility features only — no fundamental ratios.
