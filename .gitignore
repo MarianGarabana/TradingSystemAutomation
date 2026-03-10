@@ -33,7 +33,5 @@ ENV/
 .idea/
 *.swp
 
-
-
 # --- Logs ---
 *.log
