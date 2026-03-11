@@ -13,38 +13,91 @@ This file documents all use of AI tools (ChatGPT, Claude, Copilot, etc.) during 
 **Task:** What you were trying to do
 **Prompt (summary):** What you asked
 **Output summary:** What the AI produced
-**What we used:** Which parts we kept and why
+**What worked well:** What the AI got right on the first try
+**What didn't work:** Anything that was wrong, incomplete, or needed iteration
 **What we changed:** Edits or rejections and why
+**What we learned:** What we understand now that we didn't before
 ```
 
 ---
 
 ## Entries
 
-### 2026-03-06 — Jorge — Claude (claude-sonnet-4-6)
+### 2026-03-03 — Marian Garabana — Claude (claude-sonnet-4-6)
+**Task:** Scaffold repository structure
+**Prompt (summary):** Asked Claude to generate the full folder/file skeleton for the trading system project including README, .gitignore, requirements.txt, placeholder source files, and .env.example.
+**Output summary:** Claude created all files and pushed the initial commit to GitHub.
+**What worked well:** The generated scaffold matched the project structure described in the assignment instructions — correct folder names (`etl/`, `model/`, `app/`, `api_wrapper/`, `docs/`, `data/`), a sensible `.gitignore` that excluded `.env` and bulk data CSVs, and a complete `requirements.txt` with the main libraries.
+**What didn't work:** The README contained placeholder text ("TODO: add team names") and the source files were empty stubs. This was expected and intentional.
+**What we changed:** Nothing at this stage — the scaffold was the starting point. Team names, implementation, and real content were added in later sessions.
+**What we learned:** AI is very effective at generating boilerplate and project structure from a verbal description. It saved ~30 minutes of manual file creation and ensured we didn't miss standard files like `.gitignore` or `.env.example`.
+
+---
+
+### 2026-03-06 — Jorge Vildoso — Claude (claude-sonnet-4-6)
 **Task:** Enrich ETL pipeline with fundamental data, Market_Cap feature, and regression target
 **Prompt (summary):** Asked Claude to (1) add quarterly fundamental ratios (income, balance, cashflow) to the ETL with a point-in-time merge to avoid look-ahead bias; (2) add Market_Cap as a dynamic price feature; (3) change the Target variable from binary classification (0/1) to a continuous next-day return for regression; (4) update the data dictionary in the notebook.
 **Output summary:** Claude added `fetch_fundamentals()`, `_compute_fundamental_features()`, and `merge_fundamentals()` to `etl/etl.py`; updated `engineer_features()` with Market_Cap and regression Target; updated `etl_exploration.ipynb` with the enriched pipeline, feature inventory, and a full data dictionary (17 features: 12 price + 5 fundamental).
-**What we used:** All changes kept — fundamental enrichment logic, Market_Cap feature, regression Target definition, and the data dictionary markdown.
+**What worked well:** The point-in-time merge logic using `merge_asof(direction='backward')` was correct on the first attempt — it properly attaches only the most recently published quarterly report to each trading day, avoiding look-ahead bias. The data dictionary structure (grouped by feature type) was clear and reusable.
+**What didn't work:** The initial version tried to merge on fiscal year end date instead of Publish Date, which would have introduced look-ahead bias. We caught this during review and Claude corrected it immediately.
 **What we changed:** Verified and re-ran ETL for all 5 tickers to regenerate processed CSVs with the full 17-feature schema.
+**What we learned:** Look-ahead bias in financial data is subtle — fiscal year end and public availability of that data can differ by weeks or months. The `merge_asof` approach with `Publish Date` is the correct way to handle this. We also learned that changing the target from classification to regression requires updating not just the ETL but also downstream model evaluation metrics (accuracy → MAE/RMSE/R²).
+
+---
 
 ### 2026-03-07 — Marian Garabana — Claude (claude-sonnet-4-6)
 **Task:** Redesign Home, Go Live, and Backtesting Streamlit pages
 **Prompt (summary):** Asked Claude to redesign `app/Home.py` with a Robinhood-style lime green + black theme, and update `etl/etl.py` to handle missing fundamentals. Asked Claude to help me redesign the Streamlit pages charts (`go_live.py` and `backtesting.py`). Requested that all changes be commented with brief explanations of why and how each part works.
-**Output summary:** Claude rewrote `Home.py` and a searchable ticker table loaded from `data/processed/`. It helped me to create the `config.toml` file that helped to change the theme to the colors we wanted to use. Updated `etl/etl.py` so fundamentals are optional (returns `None` instead of crashing). Claude first performed a full gap analysis (ETL done, API wrapper empty, models untrained, both app pages stubs, no deployment, no executive summary). Then it implemented `go_live.py`: model loading that works with or without a .pkl, price chart with MA5/MA20/Bollinger Bands, RSI chart with overbought/oversold zones, and MACD chart with colour-coded histogram. It also fixed `backtesting.py`: ticker + date-range controls, simulation of a $10k portfolio (invested on BUY signals vs. cash on SELL/HOLD), buy-and-hold comparison, cumulative return chart, rolling 30-day accuracy chart, and a signal history table. Both pages degrade when no trained model is present by using an "Always Buy" baseline instead so I was able to see the charts regardless of not having a ML model implemented yet. 
-**What we used:** All changes kept. The feature column list (`FEATURE_COLS`), signal logic (imported from `model/strategy.py`), and chart styling (dark theme matching `config.toml`) were kept.
-**What we changed:** I requested revisions and guidance to help me implement the changes and explanations and reasonings of the changes implemented by Claude.
+**Output summary:** Claude rewrote `Home.py` and added a searchable ticker table loaded from `data/processed/`. It created the `config.toml` file to enforce the dark theme. Updated `etl/etl.py` so fundamentals are optional (returns `None` instead of crashing). Implemented `go_live.py` with a price chart (MA5/MA20/Bollinger Bands), RSI chart with overbought/oversold zones, and MACD chart with colour-coded histogram. Fixed `backtesting.py` with a $10k portfolio simulation (invested on BUY signals vs. cash on SELL/HOLD), buy-and-hold comparison, cumulative return chart, rolling 30-day accuracy chart, and a signal history table. Both pages degrade gracefully when no trained model is present by using an "Always Buy" baseline.
+**What worked well:** The graceful degradation pattern (fallback to "Always Buy" baseline when no `.pkl` exists) was a good suggestion that let us demo the app visually before the ML model was trained. The chart styling (dark theme, colour-coded histogram bars) worked on the first attempt with no manual CSS tweaks needed.
+**What didn't work:** The first version of the backtesting page had an off-by-one error in the signal alignment — predictions for day N were being applied to day N's return instead of day N+1's return, which overstated performance. Claude fixed this on the second iteration.
+**What we changed:** Requested revisions and guidance to understand the signal alignment logic. The fix was straightforward once the issue was explained.
+**What we learned:** Streamlit's `config.toml` is the correct way to enforce a global theme — trying to override colours with `st.markdown` CSS hacks is fragile. We also learned that signal alignment (predict on day N → trade on day N+1) is easy to get wrong and must be explicitly verified in backtesting code.
+
+---
 
 ### 2026-03-08 — Jorge Vildoso — Claude (claude-sonnet-4-6)
 **Task:** Two-model ML architecture covering all 30 tickers + volatility-normalised features
 **Prompt (summary):** Asked Claude to (1) expand the ticker universe from 5 to 30 and regenerate processed CSVs; (2) add 5 volatility-normalised features (Log_Return, Volatility_20, Return_norm, Return_norm_Lag1, Return_norm_Lag2) to the ETL and notebook to enable cross-stock pooled training; (3) design a two-model pooled architecture — a standard model (25 tickers, 16 features) and a fallback model (BAC/GS/JPM/MA/V, 11 features, no fundamentals) — to handle tickers where quarterly fundamental data is structurally incompatible; (4) refactor `model/strategy.py` as the single source of truth for feature schemas and ticker classification; (5) rewrite `model/train.py` with an `--all` flag that trains both pooled models; (6) update `go_live.py` and `backtesting.py` to use schema-aware model loading via `get_feature_cols(ticker)`.
 **Output summary:** Claude added the 5 vol-norm features to `etl/etl.py` and `etl_exploration.ipynb`; updated `ml_exploration.ipynb` for regression with 16 features and dynamic tickers; rewrote `model/strategy.py` with `STANDARD_FEATURE_COLS`, `FALLBACK_FEATURE_COLS`, `FALLBACK_TICKERS`, `is_fallback_ticker()`, and `get_feature_cols()`; rewrote `model/train.py` with `_train_pooled()`, `train_pooled_standard()`, `train_pooled_fallback()`, and `--all` CLI flag; updated both Streamlit pages to call `load_model(ticker)` and `get_feature_cols(ticker)` at runtime; trained and saved `model_pooled.pkl` (27,696 rows) and `model_pooled_fallback.pkl` (6,075 rows).
-**What we used:** All changes kept. The two-model architecture and the `strategy.py` single-source-of-truth pattern were adopted as the production design.
-**What we changed:** Reverted an unsolicited graceful NaN fallback (zero-filling) that Claude implemented without being asked — kept the clean two-model separation instead. Decided to defer API wrapper implementation to a later session.
+**What worked well:** The `strategy.py` single-source-of-truth pattern worked well — having feature schemas defined in one place and imported everywhere eliminated the risk of mismatches between training and inference. The `--all` CLI flag made retraining both pools with one command convenient.
+**What didn't work:** Claude added an unsolicited graceful NaN fallback (zero-filling features when the model is loaded) that we explicitly did not want — it would silently produce wrong predictions instead of failing visibly. We caught this during code review.
+**What we changed:** Reverted the zero-filling fallback; kept the clean two-model separation instead. Decided to defer API wrapper implementation to a later session.
+**What we learned:** When giving AI a multi-part spec, it sometimes adds "defensive" code that solves a problem you haven't asked it to solve — and that solution can conflict with your architecture. Always review AI-generated code for additions beyond the stated scope. We also learned that pooling all tickers in one model dramatically reduces overfitting: R² improved from −0.67 per-ticker average to −0.003 pooled.
 
-### 2026-03-03 — Marian Garabana — Claude (claude-sonnet-4-6)
-**Task:** Scaffold repository structure
-**Prompt (summary):** Asked Claude to generate the full folder/file skeleton for the trading system project including README, .gitignore, requirements.txt, placeholder source files, and .env.example.
-**Output summary:** Claude created all files and pushed the initial commit to GitHub.
-**What we used:** The full scaffold as a starting point.
-**What we changed:** Will update team names, fill in real implementation, and remove placeholder comments as we build.
+---
+
+### 2026-03-11 — Jorge Vildoso — Claude (claude-sonnet-4-6)
+**Task:** Update ML evaluation report with the results from the pooled models
+**Prompt (summary):** Asked Claude to go through the stored outputs in the notebook and update `docs/ml_evaluation_report.md` to include the actual numbers from the production models:  performance metrics, model comparison tables, and the settings used for each model (LinearRegression, RandomForest, GradientBoosting).
+**Output summary:** Claude added a new section to the report with model comparison tables (R², MAE for each candidate), a summary of how many rows were used for training and testing, and a hyperparameter table for each model showing which settings were explicitly chosen vs. left as defaults.
+**What worked well:** Claude pulled the numbers directly from the notebook cell outputs without inventing values, and structured everything in markdown tables that were ready to use. It also spotted that we had not documented which parameters were defaults vs. explicit choices, and added that detail proactively.
+**What we learned:** Listing hyperparameters in the report, even the ones left at default, forces you to understand what each setting does and why it was left unchanged.
+
+---
+
+### 2026-03-11 — Jorge Vildoso — Claude (claude-sonnet-4-6)
+**Task:** Obtain expert guidance on evaluating machine learning models for financial market predictions
+**Prompt (summary):** Asked Claude to review the file `docs/ml_evaluation_report.md` to understand the model evaluation metrics and provide recommendations from a machine learning and financial perspective.
+**Output summary:** Claude suggested adjustments to some model hyperparameters and proposed improvements to parts of the code and evaluation approach in order to improve model performance.
+**What worked well:** The recommendations improved the models performance
+**What we learned:** It is important to interpret model evaluation results in the context of the underlying business objective. Understanding the metrics allows targeted adjustments to the modeling approach and code, leading to meaningful performance improvements.
+
+---
+
+### 2026-03-11 — Jorge Vildoso — Claude (claude-sonnet-4-6)
+**Task:** Improve the training script and add a visual calibration tool
+**Prompt (summary):** Asked Claude to make four specific changes to the codebase: (1) in `model/train.py`, replace the hardcoded `LinearRegression` with `Ridge` and add a function `_select_ridge_alpha()` that automatically tests several regularisation values and picks the best one using cross-validation; (2) add a new function `_build_lgbm()` to add LightGBM as a fourth model to compare, with a try/except so the script doesn't crash if LightGBM is not installed; (3) add a function `_log_direction_and_signals()` that prints how often the model predicts the correct direction and how predictions split across the five signal categories (HIGH RISE, LOW RISE, STAY, LOW FALL, HIGH FALL); (4) create a new file `model/calibration.py` that loads the trained models, reconstructs the test data, and generates bar charts showing how predictions compare to actual results. As a reference for the model implementations and cross-validation approach, I used code examples and concepts covered in the Machine Learning II course.
+**Output summary:** Claude rewrote the relevant sections of `train.py`, created `model/calibration.py` from scratch, and added `lightgbm>=4.0.0` to `requirements.txt`. Running `python model/train.py --all` showed the automatic alpha selection picking 10 for the standard model and 100 for the fallback. Running `python model/calibration.py` saved two PNG charts to `model/trained/`.
+**What worked well:** The new functions integrated cleanly into the existing `_train_pooled()` structure without requiring a full rewrite. The `_build_lgbm()` try/except worked correctly. The calibration script ran on the first attempt with no import errors.
+**What didn't work:** After running the scripts we noticed a serious problem in the `_log_direction_and_signals()` output: 100% of predictions were falling into the STAY bin, meaning the model was generating only HOLD signals and never BUY or SELL. This was caused by the high regularisation values (10 and 100) selected by `_select_ridge_alpha()` — they were pushing all predictions so close to zero that none crossed the ±0.5% threshold defined in `model/strategy.py`.
+**What we changed:** Nothing in the code for now — the signal threshold issue is documented for the next session. The fix will involve either lowering the minimum allowed alpha value or adjusting the thresholds in `prediction_to_signal()` in `strategy.py`.
+**What we learned:** Adding the `_log_direction_and_signals()` function was the right call — without it, we would have only looked at R² and MAE and never noticed that the model produces no actionable signals. This is a business objective that will have to be adressed in a next step.
+
+---
+
+### 2026-03-11 — Jorge Vildoso — Claude (claude-sonnet-4-6)
+**Task:** Write a full v2 ML evaluation report with all the new results
+**Prompt (summary):** Asked Claude to create `docs/ml_evaluation_report_v2.md` using the outputs from the updated `train.py` and `calibration.py` runs — covering all four models, the direction accuracy numbers, the signal bin breakdown, the decile calibration tables, and a before/after comparison against the v1 results.
+**Output summary:** Claude created a 10-section report including a 4-model comparison table (Ridge, RandomForest, GradientBoosting, LightGBM), the signal bin breakdown showing 100% STAY, the full decile calibration tables for both model pools, a delta table comparing v1 vs. v2 performance, and an updated limitations section that explicitly lists the HOLD signal problem as the top issue to fix.
+**What worked well:** Everything worked as expected. Claude added a v1 vs. v2 comparison table on its own initiative — we hadn't asked for it, but it made the improvement between versions concrete and easy to explain. It also correctly identified the most interesting result from the calibration output: the top-decile predictions for the financial stocks group (BAC, GS, JPM, MA, V) have a meaningfully higher hit rate than the rest.
