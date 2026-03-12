@@ -71,20 +71,36 @@ class Signal(str, Enum):
     HOLD = "HOLD"
 
 
-def prediction_to_signal(prediction: int) -> Signal:
-    """Convert a raw model prediction integer to a trading signal.
+def prediction_to_signal(prediction, thresholds: dict | None = None) -> Signal:
+    """Convert a raw model prediction to a trading signal.
 
-    Convention:
-        1  → BUY  (price expected to rise)
-        -1 → SELL (price expected to fall)
+    If ``thresholds`` is provided (dict with "buy" and "sell" float keys),
+    uses percentile-based comparison against the model's own prediction
+    distribution — precomputed at training time and stored in
+    model/trained/thresholds.json:
+        pred > thresholds["buy"]  → BUY
+        pred < thresholds["sell"] → SELL
+        otherwise                 → HOLD
+
+    If ``thresholds`` is None (e.g. thresholds.json is missing), falls back to
+    the legacy integer convention so the app never crashes:
+        1  → BUY
+        -1 → SELL
         0  → HOLD
     """
+    if thresholds is not None:
+        if prediction > thresholds["buy"]:
+            return Signal.BUY
+        elif prediction < thresholds["sell"]:
+            return Signal.SELL
+        return Signal.HOLD
+
+    # Legacy fallback: integer class labels used before thresholds were introduced.
     if prediction == 1:
         return Signal.BUY
     elif prediction == -1:
         return Signal.SELL
-    else:
-        return Signal.HOLD
+    return Signal.HOLD
 
 
 def backtest(predictions, actuals) -> dict:

@@ -22,12 +22,12 @@ TODO (teammates — API integration):
       # before calling model.predict(X_latest).
 """
 
+import json
 import os
 import sys
 
 import joblib
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -99,6 +99,25 @@ def load_model(ticker: str):
     if os.path.exists(path):
         return joblib.load(path)
     return None
+
+
+def load_thresholds(ticker: str) -> dict | None:
+    """Load percentile-based signal thresholds for this ticker's model pool.
+
+    Reads model/trained/thresholds.json (written by model/train.py --all).
+    Returns {"buy": float, "sell": float} or None if the file is missing,
+    so the app degrades gracefully to legacy integer signals rather than crashing.
+    """
+    path = os.path.join(TRAINED_DIR, "thresholds.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        pool = "fallback" if is_fallback_ticker(ticker) else "standard"
+        return data.get(pool)
+    except Exception:
+        return None
 
 
 def fmt_pct(value: float) -> str:
@@ -237,15 +256,12 @@ if model is not None:
     X_latest = pd.DataFrame([last[get_feature_cols(ticker)]])
     raw_pred = model.predict(X_latest)[0]
 
-    # Support both regression models (output = float, e.g. predicted return)
-    # and classification models (output = int class label).
-    # For regression: positive predicted return → BUY, negative → SELL.
-    if isinstance(raw_pred, (float, np.floating)):
-        pred_int = 1 if raw_pred > 0 else -1
-    else:
-        pred_int = int(raw_pred)
-
-    signal = prediction_to_signal(pred_int)
+    # Use percentile thresholds from thresholds.json when available.
+    # They adapt to the Ridge model's shrunk prediction range, ensuring the
+    # top 25% of predictions → BUY and the bottom 25% → SELL.
+    # Falls back to the legacy integer convention if the file is missing.
+    thresholds = load_thresholds(ticker)
+    signal = prediction_to_signal(raw_pred, thresholds)
     style  = SIGNAL_STYLE[signal]
 
     # Try extracting prediction confidence from classifiers that expose
