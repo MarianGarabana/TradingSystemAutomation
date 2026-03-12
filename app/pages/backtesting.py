@@ -14,6 +14,7 @@ CHANGES FROM STUB:
   - Shows per-row signal history table for the last 30 days.
 """
 
+import json
 import os
 import sys
 
@@ -79,7 +80,26 @@ def load_model(ticker: str):
     return None
 
 
-def run_backtest(df: pd.DataFrame, model, feature_cols: list[str]) -> tuple[pd.DataFrame, str]:
+def load_thresholds(ticker: str) -> dict | None:
+    """Load percentile-based signal thresholds for this ticker's model pool.
+
+    Reads model/trained/thresholds.json (written by model/train.py --all).
+    Returns {"buy": float, "sell": float} or None if the file is missing,
+    so the page degrades gracefully to the raw->binary fallback rather than crashing.
+    """
+    path = os.path.join(TRAINED_DIR, "thresholds.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        pool = "fallback" if is_fallback_ticker(ticker) else "standard"
+        return data.get(pool)
+    except Exception:
+        return None
+
+
+def run_backtest(df: pd.DataFrame, model, feature_cols: list[str], thresholds: dict | None = None) -> tuple[pd.DataFrame, str]:
     """Run the strategy simulation on the filtered DataFrame.
 
     Parameters
@@ -110,9 +130,14 @@ def run_backtest(df: pd.DataFrame, model, feature_cols: list[str]) -> tuple[pd.D
         raw_preds = model.predict(X)
 
         # Handle both regression models (float output) and classifiers (int output).
-        # For regression: positive predicted return → BUY (1), negative → SELL (0).
+        # For regression with thresholds: use percentile-based buy/sell boundaries
+        # so the Ridge model's shrunk predictions generate actual BUY/SELL signals.
+        # Without thresholds: fall back to sign-based binarisation (> 0 → BUY).
         if raw_preds.dtype.kind == "f":
-            df["Predicted"] = (raw_preds > 0).astype(int)
+            if thresholds is not None:
+                df["Predicted"] = (raw_preds > thresholds["buy"]).astype(int)
+            else:
+                df["Predicted"] = (raw_preds > 0).astype(int)
         else:
             # Map class labels to {0, 1}: treat anything > 0 as BUY.
             df["Predicted"] = (raw_preds.astype(int) > 0).astype(int)
@@ -255,8 +280,9 @@ if model is None:
         "Run `python model/train.py --all` to compare against the ML model."
     )
 
-# Run the simulation using the correct feature schema for this ticker.
-result_df, strategy_label = run_backtest(df_slice, model, get_feature_cols(ticker))
+# Run the simulation using the correct feature schema and percentile thresholds.
+thresholds = load_thresholds(ticker)
+result_df, strategy_label = run_backtest(df_slice, model, get_feature_cols(ticker), thresholds)
 
 # ── Summary metrics ────────────────────────────────────────────────────────────
 st.subheader("Summary")

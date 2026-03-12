@@ -36,6 +36,7 @@ Usage:
 
 import argparse
 import glob
+import json
 import logging
 import os
 import sys
@@ -76,6 +77,7 @@ TARGET_COL    = "Target"
 # Model filenames — one per feature schema.
 STANDARD_MODEL_FILE = "model_pooled.pkl"
 FALLBACK_MODEL_FILE = "model_pooled_fallback.pkl"
+THRESHOLDS_FILE     = "thresholds.json"
 
 # Signal bin thresholds (fraction, matching strategy.py 5-tier scheme).
 _HIGH_RISE =  0.02
@@ -478,6 +480,86 @@ def train_ticker(ticker: str) -> str:
     return model_path
 
 
+# ── Threshold computation ─────────────────────────────────────────────────────
+
+def compute_and_save_thresholds() -> dict:
+    """Compute percentile-based signal thresholds from each pooled model's
+    prediction distribution and save them to model/trained/thresholds.json.
+
+    For each pool (standard, fallback):
+      - Loads all processed CSVs for the relevant tickers.
+      - Runs model.predict() on every usable row (after NaN removal).
+      - Sets buy threshold = 75th percentile of predictions,
+              sell threshold = 25th percentile of predictions.
+
+    Because Ridge with high alpha shrinks all predictions toward zero, the
+    hardcoded ±0.5% thresholds in the original strategy.py always map to HOLD.
+    Percentile-based thresholds adapt to whatever range the model actually
+    produces — the top 25% of predictions generate BUY signals and the bottom
+    25% generate SELL signals regardless of the absolute magnitudes.
+
+    Returns the thresholds dict:
+        {"standard": {"buy": float, "sell": float},
+         "fallback":  {"buy": float, "sell": float}}
+
+    The file is loaded at startup by go_live.py and backtesting.py.
+    If the file is missing those pages fall back to legacy integer signals.
+    """
+    all_tickers      = discover_tickers()
+    standard_tickers = [t for t in all_tickers if not is_fallback_ticker(t)]
+    fallback_tickers  = [t for t in all_tickers if is_fallback_ticker(t)]
+
+    configs = [
+        ("standard", standard_tickers, STANDARD_FEATURE_COLS, STANDARD_MODEL_FILE),
+        ("fallback",  fallback_tickers,  FALLBACK_FEATURE_COLS,  FALLBACK_MODEL_FILE),
+    ]
+
+    thresholds = {}
+    for label, tickers, feature_cols, model_file in configs:
+        model_path = os.path.join(TRAINED_DIR, model_file)
+        if not os.path.exists(model_path):
+            logger.warning(
+                f"[{label}] Model not found at {model_path} — "
+                "skipping threshold computation for this pool."
+            )
+            continue
+
+        model = joblib.load(model_path)
+
+        frames = []
+        for ticker in tickers:
+            try:
+                df = load_processed(ticker)
+                df = df.dropna(subset=feature_cols + [TARGET_COL]).reset_index(drop=True)
+                frames.append(df[feature_cols])
+            except Exception as e:
+                logger.warning(f"[{ticker}] Skipped in threshold computation: {e}")
+
+        if not frames:
+            logger.warning(f"[{label}] No usable data — cannot compute thresholds.")
+            continue
+
+        X_all = pd.concat(frames, ignore_index=True)
+        preds = model.predict(X_all)
+
+        buy_threshold  = float(np.percentile(preds, 75))
+        sell_threshold = float(np.percentile(preds, 25))
+
+        thresholds[label] = {"buy": buy_threshold, "sell": sell_threshold}
+        logger.info(
+            f"[{label}] Thresholds computed from {len(preds):,} predictions — "
+            f"buy (p75): {buy_threshold:+.6f}   sell (p25): {sell_threshold:+.6f}"
+        )
+
+    out_path = os.path.join(TRAINED_DIR, THRESHOLDS_FILE)
+    os.makedirs(TRAINED_DIR, exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump(thresholds, f, indent=2)
+    logger.info(f"Thresholds saved → {out_path}")
+
+    return thresholds
+
+
 # ── CLI entrypoint ────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -504,6 +586,7 @@ if __name__ == "__main__":
         if args.all:
             train_pooled_standard()
             train_pooled_fallback()
+            compute_and_save_thresholds()
         else:
             train_ticker(args.ticker)
     except Exception as e:
