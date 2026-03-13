@@ -1,27 +1,21 @@
 """
 go_live.py — Ticker selector, latest predictions, and trading signals.
 
-CHANGES FROM STUB:
-  - Full implementation replacing the single st.info("TODO...") placeholder.
-  - Loads processed CSVs from data/processed/ (30 tickers available).
-  - Tries to load a trained .pkl model; shows signal if found, warns if not.
-  - Displays 4 key metrics: price, daily return, RSI, market cap.
-  - Renders price chart (last 90 days) with MA5, MA20, Bollinger Bands.
-  - Renders RSI chart with overbought/oversold zones.
-  - Renders MACD chart with histogram.
-  - All charts use the project's dark theme (black bg, lime green).
+Data loading strategy (API-first with CSV fallback):
+  1. PRIMARY — fetch the last 200 days of price data from SimFin via PySimFin,
+     apply the same ETL feature engineering (engineer_features from etl.py),
+     and serve the result as "live" data.  Cache result for 1 hour to avoid
+     hammering the SimFin free-tier rate limit on every Streamlit rerun.
+  2. FALLBACK — if the API call fails for any reason (network error, missing
+     API key, rate-limit burst), silently fall back to the processed static
+     CSV on disk and show a small ⚠️ badge so the user knows data is not live.
 
-TODO (teammates — API integration):
-  When pysimfin.py is implemented, replace the local data loading block below
-  with real-time data fetched via the wrapper:
-
-      from api_wrapper.pysimfin import PySimFin
-      client = PySimFin()
-      fresh_prices = client.get_share_prices(ticker, start=ninety_days_ago, end=today)
-      # Then apply the same ETL transforms (clean_data + engineer_features)
-      # before calling model.predict(X_latest).
+  200 days is chosen as the lookback window because the slowest indicator is
+  the 26-day EMA used by MACD; adding buffer for weekends, holidays, and the
+  rolling-window NaN warmup rows that are dropped by engineer_features().
 """
 
+import datetime
 import os
 import sys
 
@@ -30,10 +24,12 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
-# Add the project root to sys.path so we can import from model/strategy.py.
-# os.path.dirname(__file__) is app/pages/, so going up two levels reaches the root.
+# Add the project root to sys.path so we can import from model/strategy.py
+# and etl/etl.py.  os.path.dirname(__file__) is app/pages/, so going up two
+# levels reaches the project root.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from model.strategy import Signal, prediction_to_signal, is_fallback_ticker, get_feature_cols
+from etl.etl import engineer_features  # reuse the same feature engineering as training
 
 st.set_page_config(page_title="Go Live", page_icon="🚀", layout="wide")
 
@@ -74,14 +70,64 @@ def available_tickers() -> list[str]:
 
 
 @st.cache_data
-def load_processed(ticker: str) -> pd.DataFrame:
-    """Load the ETL-processed CSV for a ticker and sort by date.
+def _load_processed_csv(ticker: str) -> pd.DataFrame:
+    """Load the static ETL-processed CSV for a ticker (used as fallback).
 
-    Cached so switching back to a previously viewed ticker is instant.
+    Kept private (_) because callers should use load_ticker_data() which
+    tries the live API first and only calls this on failure.
     """
     path = os.path.join(PROCESSED_DIR, f"{ticker}.csv")
     df = pd.read_csv(path, parse_dates=["Date"])
     return df.sort_values("Date").reset_index(drop=True)
+
+
+@st.cache_data(ttl=3600)  # cache live data for 1 hour — balances freshness vs API rate limits
+def load_ticker_data(ticker: str) -> tuple[pd.DataFrame, str]:
+    """Fetch and engineer features for *ticker*, returning (df, source).
+
+    Tries the SimFin API first so the app shows real-time data.
+    Falls back to the static processed CSV if anything goes wrong
+    (missing API key, network error, rate-limit burst, etc.).
+
+    The 'source' return value is "live" or "csv" — used by the UI to
+    display a small badge so users know whether data is fresh.
+
+    The lookback window is 200 calendar days:
+      - MACD needs 26-day EMA warmup (slowest indicator)
+      - Add 20 days for MA20/Bollinger, 14 for RSI, lags, etc.
+      - Roughly double the minimum to account for weekends/holidays
+      - engineer_features() drops ~26 warmup rows; we still get ~130+
+        usable rows, which is more than enough for the 90-day chart.
+    """
+    today = datetime.date.today().strftime("%Y-%m-%d")
+    start = (datetime.date.today() - datetime.timedelta(days=200)).strftime("%Y-%m-%d")
+
+    try:
+        from api_wrapper.pysimfin import PySimFin  # imported here to avoid crashing if
+                                                   # the module or dotenv key is missing
+        client = PySimFin()
+        df_prices = client.get_share_prices(ticker, start=start, end=today)
+
+        # The API's get_share_prices() returns Date, OHLCV, Dividend, Shares Outstanding.
+        # Before calling engineer_features() we need to match the column names and
+        # dtype expectations of the ETL:
+        #   - Dividend: API may return None for days with no payout; ETL expects 0.
+        #   - engineer_features() computes Market_Cap = Adj.Close × Shares Outstanding,
+        #     so both columns must be present (they are — see get_share_prices()).
+        df_prices["Dividend"] = df_prices["Dividend"].fillna(0)
+
+        # engineer_features() is imported from etl/etl.py — same function used during
+        # training, so the feature set is guaranteed to be identical to what the model
+        # was trained on (no train/serve skew).
+        df = engineer_features(df_prices)
+        return df, "live"
+
+    except Exception:
+        # Any failure — bad key, network down, SimFin outage — falls back to CSV.
+        # We intentionally swallow the exception here because go_live.py should
+        # always show something useful to the user, never a crash screen.
+        df = _load_processed_csv(ticker)
+        return df, "csv"
 
 
 def load_model(ticker: str):
@@ -219,9 +265,16 @@ if not tickers:
 # Ticker selector — driven by which processed CSVs exist on disk.
 ticker = st.selectbox("Select ticker", tickers)
 
-# Load the full processed history for this ticker (cached).
-df = load_processed(ticker)
-last = df.iloc[-1]   # the most recent trading day row
+# Fetch live data from the API (or fall back to static CSV).
+# data_source is "live" or "csv" — shown as a badge next to the ticker.
+df, data_source = load_ticker_data(ticker)
+last = df.iloc[-1]   # the most recent complete trading day
+
+# Show a small data-freshness badge so users know the data origin.
+if data_source == "live":
+    st.success(f"🟢 Live data via SimFin API — last updated: {last['Date'].strftime('%Y-%m-%d')}")
+else:
+    st.warning("⚠️ Showing cached data (API unavailable). Data may not reflect today's prices.")
 
 # Load the correct pooled model for this ticker (standard or fallback schema).
 model = load_model(ticker)
