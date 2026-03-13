@@ -3,7 +3,7 @@ train.py — Production ML training script for the trading system.
 
 Two pooled models are trained — one per feature schema:
 
-  model_pooled.pkl           Standard model (25 tickers, 16 features)
+  model_pooled.pkl           Standard model (25 tickers, 11 features)
                              Covers all tickers except the 5 fallback ones.
 
   model_pooled_fallback.pkl  Fallback model (5 tickers, 11 features)
@@ -12,19 +12,20 @@ Two pooled models are trained — one per feature schema:
                              incompatible (banks / payment networks).
 
 Training strategy:
+  - Binary classification: target = 1 if next-day return > 0 else 0.
+    Rows with exact zero next-day return are dropped (ambiguous direction).
   - 80/20 temporal split applied PER TICKER before pooling.
     Each ticker contributes its own final 20% period to the test set,
     preventing the test set from being dominated by whichever tickers
     appear last alphabetically in the concatenated pool.
-  - Four models are evaluated: Ridge (with StandardScaler + alpha CV),
-    RandomForestRegressor, GradientBoostingRegressor, and LightGBM.
-  - StandardScaler is applied ONLY to Ridge. Tree-based models
+  - Four models are evaluated: LogisticRegression (with StandardScaler + C CV),
+    RandomForestClassifier, GradientBoostingClassifier, and LightGBM.
+  - StandardScaler is applied ONLY to LogisticRegression. Tree-based models
     (RF, GBR, LightGBM) are scale-invariant and do not require normalisation.
-  - Ridge alpha is selected via TimeSeriesSplit(n_splits=5) CV on the
-    training set, optimising for mean direction accuracy across folds.
-  - The model with the highest test R² is saved as the .pkl file.
-  - After model selection, direction accuracy and signal-bin breakdown
-    are logged for both the winning model and all candidates.
+  - LogisticRegression C is selected via TimeSeriesSplit(n_splits=5) CV on the
+    training set, optimising for mean accuracy across folds.
+  - The model with the highest test accuracy is saved as the .pkl file.
+  - After model selection, the full classification_report is logged.
 
 Usage:
     # Train BOTH models — covers all 30 tickers (recommended)
@@ -36,7 +37,6 @@ Usage:
 
 import argparse
 import glob
-import json
 import logging
 import os
 import sys
@@ -44,9 +44,9 @@ import sys
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
-from sklearn.linear_model import Ridge
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, classification_report, f1_score
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -77,16 +77,9 @@ TARGET_COL    = "Target"
 # Model filenames — one per feature schema.
 STANDARD_MODEL_FILE = "model_pooled.pkl"
 FALLBACK_MODEL_FILE = "model_pooled_fallback.pkl"
-THRESHOLDS_FILE     = "thresholds.json"
 
-# Signal bin thresholds (fraction, matching strategy.py 5-tier scheme).
-_HIGH_RISE =  0.02
-_LOW_RISE  =  0.005
-_LOW_FALL  = -0.005
-_HIGH_FALL = -0.02
-
-# Ridge alpha candidates for cross-validation.
-_RIDGE_ALPHAS = [0.01, 0.1, 1.0, 10.0, 100.0]
+# LogisticRegression C candidates for cross-validation.
+_LR_C_VALUES = [0.01, 0.1, 1.0, 10.0]
 
 
 # ── Core helpers ──────────────────────────────────────────────────────────────
@@ -102,44 +95,48 @@ def load_processed(ticker: str) -> pd.DataFrame:
     return pd.read_csv(path, parse_dates=["Date"]).sort_values("Date").reset_index(drop=True)
 
 
-def _build_ridge(alpha: float = 1.0) -> Pipeline:
-    """Ridge regression wrapped in StandardScaler.
+def _build_logistic(C: float = 0.1) -> Pipeline:
+    """LogisticRegression wrapped in StandardScaler.
 
     StandardScaler is required because Market_Cap (~10^12) and Log_Return
     (~0.01) are on vastly different scales, which distorts coefficient
-    estimation without normalisation. Ridge adds L2 regularisation (α‖w‖²)
-    which reduces variance compared to plain OLS (LinearRegression).
+    estimation without normalisation. class_weight='balanced' compensates
+    for any residual class imbalance in the binary up/down target.
     """
     return Pipeline([
         ("scaler", StandardScaler()),
-        ("model", Ridge(alpha=alpha)),
+        ("model", LogisticRegression(
+            C=C,
+            max_iter=1000,
+            solver="lbfgs",
+            class_weight="balanced",
+        )),
     ])
 
 
-def _select_ridge_alpha(
+def _select_logistic_C(
     X_train: pd.DataFrame,
     y_train: pd.Series,
     label: str,
 ) -> float:
-    """Select the best Ridge alpha via TimeSeriesSplit CV on the training set.
+    """Select the best LogisticRegression C via TimeSeriesSplit CV on the training set.
 
-    Evaluates each alpha in _RIDGE_ALPHAS using 5-fold time-series CV.
-    Selection criterion: mean direction accuracy (sign(y_pred)==sign(y_true))
-    across folds — the most operationally relevant metric for a trading system.
+    Evaluates each C in _LR_C_VALUES using 5-fold time-series CV.
+    Selection criterion: mean accuracy across folds.
 
     Parameters
     ----------
     X_train : feature matrix (training split only — never touches test set)
-    y_train : target vector
+    y_train : binary target vector (0=down, 1=up)
     label   : pool label for log messages ("standard" or "fallback")
 
-    Returns the selected alpha value.
+    Returns the selected C value.
     """
     tscv = TimeSeriesSplit(n_splits=5)
-    best_alpha, best_score = _RIDGE_ALPHAS[0], -float("inf")
-    scores_by_alpha = {}
+    best_C, best_score = _LR_C_VALUES[0], -float("inf")
+    scores_by_C = {}
 
-    for alpha in _RIDGE_ALPHAS:
+    for C in _LR_C_VALUES:
         fold_scores = []
         for fold_train_idx, fold_val_idx in tscv.split(X_train):
             X_f_train = X_train.iloc[fold_train_idx]
@@ -147,57 +144,72 @@ def _select_ridge_alpha(
             X_f_val   = X_train.iloc[fold_val_idx]
             y_f_val   = y_train.iloc[fold_val_idx]
 
-            pipe = _build_ridge(alpha)
+            pipe = _build_logistic(C)
             pipe.fit(X_f_train, y_f_train)
-            preds = pipe.predict(X_f_val)
-            dir_acc = np.mean(np.sign(preds) == np.sign(y_f_val.values))
-            fold_scores.append(dir_acc)
+            acc = accuracy_score(y_f_val, pipe.predict(X_f_val))
+            fold_scores.append(acc)
 
         mean_score = float(np.mean(fold_scores))
-        scores_by_alpha[alpha] = mean_score
+        scores_by_C[C] = mean_score
         if mean_score > best_score:
-            best_score, best_alpha = mean_score, alpha
+            best_score, best_C = mean_score, C
 
     scores_str = "  ".join(
-        f"α={a}: {s:.4f}" for a, s in scores_by_alpha.items()
+        f"C={c}: {s:.4f}" for c, s in scores_by_C.items()
     )
     logger.info(
-        f"[{label}] Ridge alpha CV (TimeSeriesSplit n=5, metric=dir_acc):  {scores_str}"
+        f"[{label}] LogisticRegression C CV (TimeSeriesSplit n=5, metric=accuracy):  {scores_str}"
     )
     logger.info(
-        f"[{label}] Selected Ridge alpha={best_alpha}  "
-        f"(CV mean dir_acc={best_score:.4f})"
+        f"[{label}] Selected C={best_C}  "
+        f"(CV mean accuracy={best_score:.4f})"
     )
-    return best_alpha
+    return best_C
 
 
-def _build_rf() -> RandomForestRegressor:
-    """RandomForestRegressor — tree-based, scale-invariant, no scaler needed."""
-    return RandomForestRegressor(n_estimators=200, random_state=42, n_jobs=-1)
+def _build_rf() -> RandomForestClassifier:
+    """RandomForestClassifier — tree-based, scale-invariant, no scaler needed."""
+    return RandomForestClassifier(
+        n_estimators=200,
+        max_depth=8,
+        min_samples_leaf=15,
+        max_features=0.7,
+        random_state=42,
+        n_jobs=-1,
+    )
 
 
-def _build_gbr() -> GradientBoostingRegressor:
-    """GradientBoostingRegressor — tree-based, scale-invariant, no scaler needed."""
-    return GradientBoostingRegressor(n_estimators=200, random_state=42)
+def _build_gbr() -> GradientBoostingClassifier:
+    """GradientBoostingClassifier — tree-based, scale-invariant, no scaler needed."""
+    return GradientBoostingClassifier(
+        n_estimators=500,
+        learning_rate=0.02,
+        max_depth=2,
+        min_samples_leaf=20,
+        min_samples_split=40,
+        subsample=0.7,
+        max_features=0.8,
+        random_state=42,
+    )
 
 
 def _build_lgbm():
-    """LightGBM regressor — tree-based, scale-invariant, no scaler needed.
+    """LightGBM classifier — tree-based, scale-invariant, no scaler needed.
 
     Returns None if lightgbm is not installed (ImportError handled in caller).
     Hyperparameters chosen to balance capacity and regularisation:
       - n_estimators=500 with low learning_rate=0.03 (slow learning, less overfit)
-      - num_leaves=31 (default — keeps trees shallow)
-      - min_child_samples=30 (minimum leaf size — key regulariser for small pools)
+      - num_leaves=15 (shallow trees — reduces overfitting on ~25k rows)
+      - min_child_samples=50 (minimum leaf size — key regulariser for small pools)
       - colsample_bytree=0.8, subsample=0.7 (stochastic, adds regularisation)
     """
     try:
-        from lightgbm import LGBMRegressor
-        return LGBMRegressor(
+        from lightgbm import LGBMClassifier
+        return LGBMClassifier(
             n_estimators=500,
             learning_rate=0.03,
-            num_leaves=31,
-            min_child_samples=30,
+            num_leaves=15,
+            min_child_samples=50,
             colsample_bytree=0.8,
             subsample=0.7,
             random_state=42,
@@ -220,70 +232,14 @@ def _split_ticker(
     """Apply 80/20 temporal split to a single ticker's clean rows.
 
     NaN rows are dropped before splitting so the split index is computed
-    on usable rows only — avoiding rolling-window warm-up rows inflating
-    the apparent training size. Rows are already date-sorted by load_processed.
+    on usable rows only. Rows with exact zero Target are also dropped —
+    they are ambiguous for binary up/down classification.
+    Rows are already date-sorted by load_processed.
     """
     df = df.dropna(subset=feature_cols + [TARGET_COL]).reset_index(drop=True)
+    df = df[df[TARGET_COL] != 0].reset_index(drop=True)
     split_idx = int(len(df) * 0.8)
     return df.iloc[:split_idx], df.iloc[split_idx:]
-
-
-def _log_metrics(label: str, model_name: str, y_true, y_pred) -> float:
-    """Compute and log MAE, RMSE, R² for one model on the test set. Returns R²."""
-    mae  = mean_absolute_error(y_true, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    r2   = r2_score(y_true, y_pred)
-    logger.info(
-        f"[{label}] {model_name:40s}  MAE={mae:.6f}  RMSE={rmse:.6f}  R²={r2:.4f}"
-    )
-    return r2
-
-
-def _log_direction_and_signals(
-    label: str, model_name: str, y_true: np.ndarray, y_pred: np.ndarray
-) -> None:
-    """Log direction accuracy and signal-bin breakdown for the winning model.
-
-    Direction accuracy: fraction of test rows where sign(y_pred)==sign(y_true).
-    Signal bins mirror the 5-tier trading signal scheme used in strategy.py:
-      HIGH RISE  (>+2%)   → BUY
-      LOW RISE   (+0.5–2%)→ BUY
-      STAY       (±0.5%)  → HOLD
-      LOW FALL   (-2–-0.5%)→ SELL
-      HIGH FALL  (<-2%)   → SELL
-    """
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
-    n = len(y_true)
-
-    dir_acc = np.mean(np.sign(y_pred) == np.sign(y_true))
-    logger.info(
-        f"[{label}] {model_name} — Direction accuracy on test set: "
-        f"{dir_acc:.4f} ({dir_acc*100:.2f}%)  [n={n}]"
-    )
-
-    # Signal bin counts (based on predicted return).
-    bins = {
-        "HIGH RISE  (pred > +2%)      ": y_pred >  _HIGH_RISE,
-        "LOW RISE   (+0.5% to +2%)    ": (y_pred >= _LOW_RISE) & (y_pred <= _HIGH_RISE),
-        "STAY       (-0.5% to +0.5%)  ": (y_pred > _LOW_FALL) & (y_pred < _LOW_RISE),
-        "LOW FALL   (-2% to -0.5%)    ": (y_pred >= _HIGH_FALL) & (y_pred <= _LOW_FALL),
-        "HIGH FALL  (pred < -2%)      ": y_pred <  _HIGH_FALL,
-    }
-
-    logger.info(f"[{label}] Signal-bin breakdown (predicted distribution on test set):")
-    for bin_name, mask in bins.items():
-        count = int(mask.sum())
-        pct   = count / n * 100
-        # Within-bin direction accuracy
-        if count > 0:
-            bin_dir_acc = np.mean(np.sign(y_pred[mask]) == np.sign(y_true[mask]))
-            logger.info(
-                f"[{label}]   {bin_name}  n={count:5d} ({pct:5.1f}%)  "
-                f"within-bin dir_acc={bin_dir_acc:.3f}"
-            )
-        else:
-            logger.info(f"[{label}]   {bin_name}  n=    0 (  0.0%)")
 
 
 # ── Internal training helper ──────────────────────────────────────────────────
@@ -297,18 +253,19 @@ def _train_pooled(
     """Pool data from `tickers`, train on `feature_cols`, save to `model_filename`.
 
     Per-ticker temporal split is applied before pooling: each ticker's own
-    final 20% of rows is reserved for the test set. This prevents the test
-    set from being dominated by whichever tickers appear last alphabetically
-    in the concatenated pool.
+    final 20% of rows is reserved for the test set. Rows with zero Target are
+    dropped before splitting (ambiguous for binary classification).
+
+    Binary target: y = 1 if next-day return > 0 else 0.
 
     Four models are trained and evaluated on the held-out test set:
-      - Ridge (with StandardScaler + alpha selected via TimeSeriesSplit CV)
-      - RandomForestRegressor  (scale-invariant tree model — no scaler)
-      - GradientBoostingRegressor  (scale-invariant tree model — no scaler)
-      - LightGBMRegressor  (scale-invariant — skipped if not installed)
+      - LogisticRegression (with StandardScaler + C selected via TimeSeriesSplit CV)
+      - RandomForestClassifier   (scale-invariant tree model — no scaler)
+      - GradientBoostingClassifier  (scale-invariant tree model — no scaler)
+      - LGBMClassifier  (scale-invariant — skipped if not installed)
 
-    The model with the highest test R² is saved as the .pkl file.
-    After selection, direction accuracy and signal-bin breakdown are logged.
+    The model with the highest test accuracy is saved as the .pkl file.
+    After selection, the full classification_report is logged.
 
     Parameters
     ----------
@@ -351,23 +308,32 @@ def _train_pooled(
         )
 
     X_train = train_df[feature_cols]
-    y_train = train_df[TARGET_COL]
     X_test  = test_df[feature_cols]
-    y_test  = test_df[TARGET_COL]
 
-    # ── Select Ridge alpha via TimeSeriesSplit CV (training set only) ─────────
-    best_alpha = _select_ridge_alpha(X_train, y_train, label)
+    # Derive binary target: 1 = next-day price up, 0 = next-day price down.
+    # Zero-return rows were already dropped in _split_ticker.
+    y_train = (train_df[TARGET_COL] > 0).astype(int)
+    y_test  = (test_df[TARGET_COL] > 0).astype(int)
+
+    logger.info(
+        f"[{label}] Binary target distribution — train: "
+        f"{int(y_train.sum())} up / {int((y_train == 0).sum())} down  |  "
+        f"test: {int(y_test.sum())} up / {int((y_test == 0).sum())} down"
+    )
+
+    # ── Select LogisticRegression C via TimeSeriesSplit CV (training set only) ─
+    best_C = _select_logistic_C(X_train, y_train, label)
 
     # ── Build candidate list ──────────────────────────────────────────────────
     candidates = [
-        (f"Ridge (α={best_alpha}, + StandardScaler)", _build_ridge(best_alpha)),
-        ("RandomForestRegressor",                      _build_rf()),
-        ("GradientBoostingRegressor",                  _build_gbr()),
+        (f"LogisticRegression(C={best_C}, balanced)", _build_logistic(best_C)),
+        ("RandomForestClassifier",                      _build_rf()),
+        ("GradientBoostingClassifier",                  _build_gbr()),
     ]
 
     lgbm_model = _build_lgbm()
     if lgbm_model is not None:
-        candidates.append(("LightGBMRegressor", lgbm_model))
+        candidates.append(("LGBMClassifier", lgbm_model))
     else:
         logger.warning(
             f"[{label}] LightGBM not installed — skipping. "
@@ -380,20 +346,34 @@ def _train_pooled(
     )
 
     # ── Train all candidates, evaluate on held-out test set ───────────────────
-    best_name, best_model, best_r2 = None, None, -float("inf")
+    best_name, best_model, best_acc = None, None, -float("inf")
+    results = []
     for name, model in candidates:
         model.fit(X_train, y_train)
-        r2 = _log_metrics(label, name, y_test, model.predict(X_test))
-        if r2 > best_r2:
-            best_r2, best_name, best_model = r2, name, model
+        y_pred = model.predict(X_test)
+        acc = accuracy_score(y_test, y_pred)
+        results.append((name, model, acc, y_pred))
+        if acc > best_acc:
+            best_acc, best_name, best_model = acc, name, model
+
+    # Log all candidates, marking the winner.
+    for name, _, acc, y_pred in results:
+        f1    = f1_score(y_test, y_pred, average="binary", zero_division=0)
+        check = "✓" if name == best_name else " "
+        logger.info(
+            f"[{label}] Model: {name} | "
+            f"Accuracy: {acc * 100:.1f}% | F1: {f1:.3f} | Selected: {check}"
+        )
 
     logger.info(
-        f"[{label}] Best model: {best_name}  (test R²={best_r2:.4f}) → saving"
+        f"[{label}] Best model: {best_name}  (test accuracy={best_acc * 100:.2f}%) → saving"
     )
 
-    # ── Direction accuracy + signal-bin breakdown for the winner ──────────────
-    _log_direction_and_signals(
-        label, best_name, y_test.values, best_model.predict(X_test)
+    # ── Full classification report for the winner ─────────────────────────────
+    best_preds = best_model.predict(X_test)
+    logger.info(
+        f"[{label}] Classification report ({best_name}):\n"
+        + classification_report(y_test, best_preds, target_names=["DOWN (0)", "UP (1)"])
     )
 
     # ── Save ──────────────────────────────────────────────────────────────────
@@ -413,7 +393,7 @@ def _train_pooled(
 def train_pooled_standard() -> str:
     """Train the standard pooled model on all non-fallback tickers.
 
-    Uses STANDARD_FEATURE_COLS (16 features: price + vol + fundamentals).
+    Uses STANDARD_FEATURE_COLS (11 features: price + vol).
     Saves to model/trained/model_pooled.pkl.
     """
     all_tickers = discover_tickers()
@@ -463,14 +443,16 @@ def train_ticker(ticker: str) -> str:
 
     df = load_processed(ticker)
     df = df.dropna(subset=feature_cols + [TARGET_COL])
+    df = df[df[TARGET_COL] != 0].reset_index(drop=True)
 
     if len(df) < 50:
         raise ValueError(
             f"Only {len(df)} clean rows for '{ticker}' — not enough to train reliably."
         )
 
+    y = (df[TARGET_COL] > 0).astype(int)
     pipeline = _build_gbr()
-    pipeline.fit(df[feature_cols], df[TARGET_COL])
+    pipeline.fit(df[feature_cols], y)
 
     os.makedirs(TRAINED_DIR, exist_ok=True)
     model_path = os.path.join(TRAINED_DIR, f"model_{ticker}.pkl")
@@ -478,86 +460,6 @@ def train_ticker(ticker: str) -> str:
 
     logger.info(f"[{ticker}] Saved → {model_path}  ({len(df)} rows, {schema} schema)")
     return model_path
-
-
-# ── Threshold computation ─────────────────────────────────────────────────────
-
-def compute_and_save_thresholds() -> dict:
-    """Compute percentile-based signal thresholds from each pooled model's
-    prediction distribution and save them to model/trained/thresholds.json.
-
-    For each pool (standard, fallback):
-      - Loads all processed CSVs for the relevant tickers.
-      - Runs model.predict() on every usable row (after NaN removal).
-      - Sets buy threshold = 75th percentile of predictions,
-              sell threshold = 25th percentile of predictions.
-
-    Because Ridge with high alpha shrinks all predictions toward zero, the
-    hardcoded ±0.5% thresholds in the original strategy.py always map to HOLD.
-    Percentile-based thresholds adapt to whatever range the model actually
-    produces — the top 25% of predictions generate BUY signals and the bottom
-    25% generate SELL signals regardless of the absolute magnitudes.
-
-    Returns the thresholds dict:
-        {"standard": {"buy": float, "sell": float},
-         "fallback":  {"buy": float, "sell": float}}
-
-    The file is loaded at startup by go_live.py and backtesting.py.
-    If the file is missing those pages fall back to legacy integer signals.
-    """
-    all_tickers      = discover_tickers()
-    standard_tickers = [t for t in all_tickers if not is_fallback_ticker(t)]
-    fallback_tickers  = [t for t in all_tickers if is_fallback_ticker(t)]
-
-    configs = [
-        ("standard", standard_tickers, STANDARD_FEATURE_COLS, STANDARD_MODEL_FILE),
-        ("fallback",  fallback_tickers,  FALLBACK_FEATURE_COLS,  FALLBACK_MODEL_FILE),
-    ]
-
-    thresholds = {}
-    for label, tickers, feature_cols, model_file in configs:
-        model_path = os.path.join(TRAINED_DIR, model_file)
-        if not os.path.exists(model_path):
-            logger.warning(
-                f"[{label}] Model not found at {model_path} — "
-                "skipping threshold computation for this pool."
-            )
-            continue
-
-        model = joblib.load(model_path)
-
-        frames = []
-        for ticker in tickers:
-            try:
-                df = load_processed(ticker)
-                df = df.dropna(subset=feature_cols + [TARGET_COL]).reset_index(drop=True)
-                frames.append(df[feature_cols])
-            except Exception as e:
-                logger.warning(f"[{ticker}] Skipped in threshold computation: {e}")
-
-        if not frames:
-            logger.warning(f"[{label}] No usable data — cannot compute thresholds.")
-            continue
-
-        X_all = pd.concat(frames, ignore_index=True)
-        preds = model.predict(X_all)
-
-        buy_threshold  = float(np.percentile(preds, 75))
-        sell_threshold = float(np.percentile(preds, 25))
-
-        thresholds[label] = {"buy": buy_threshold, "sell": sell_threshold}
-        logger.info(
-            f"[{label}] Thresholds computed from {len(preds):,} predictions — "
-            f"buy (p75): {buy_threshold:+.6f}   sell (p25): {sell_threshold:+.6f}"
-        )
-
-    out_path = os.path.join(TRAINED_DIR, THRESHOLDS_FILE)
-    os.makedirs(TRAINED_DIR, exist_ok=True)
-    with open(out_path, "w") as f:
-        json.dump(thresholds, f, indent=2)
-    logger.info(f"Thresholds saved → {out_path}")
-
-    return thresholds
 
 
 # ── CLI entrypoint ────────────────────────────────────────────────────────────
@@ -572,7 +474,7 @@ if __name__ == "__main__":
         action="store_true",
         help=(
             f"Train BOTH pooled models (recommended): "
-            f"{STANDARD_MODEL_FILE} (standard, 16 features) and "
+            f"{STANDARD_MODEL_FILE} (standard, 11 features) and "
             f"{FALLBACK_MODEL_FILE} (fallback for {sorted(FALLBACK_TICKERS)}, 11 features)."
         ),
     )
@@ -586,7 +488,6 @@ if __name__ == "__main__":
         if args.all:
             train_pooled_standard()
             train_pooled_fallback()
-            compute_and_save_thresholds()
         else:
             train_ticker(args.ticker)
     except Exception as e:

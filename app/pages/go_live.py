@@ -22,7 +22,6 @@ TODO (teammates — API integration):
       # before calling model.predict(X_latest).
 """
 
-import json
 import os
 import sys
 
@@ -99,25 +98,6 @@ def load_model(ticker: str):
     if os.path.exists(path):
         return joblib.load(path)
     return None
-
-
-def load_thresholds(ticker: str) -> dict | None:
-    """Load percentile-based signal thresholds for this ticker's model pool.
-
-    Reads model/trained/thresholds.json (written by model/train.py --all).
-    Returns {"buy": float, "sell": float} or None if the file is missing,
-    so the app degrades gracefully to legacy integer signals rather than crashing.
-    """
-    path = os.path.join(TRAINED_DIR, "thresholds.json")
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path) as f:
-            data = json.load(f)
-        pool = "fallback" if is_fallback_ticker(ticker) else "standard"
-        return data.get(pool)
-    except Exception:
-        return None
 
 
 def fmt_pct(value: float) -> str:
@@ -254,18 +234,10 @@ if model is not None:
     # Using a DataFrame (not a plain array) preserves column names, which
     # sklearn pipelines require to match the training schema exactly.
     X_latest = pd.DataFrame([last[get_feature_cols(ticker)]])
-    raw_pred = model.predict(X_latest)[0]
+    pred_class = int(model.predict(X_latest)[0])
 
-    # Use percentile thresholds from thresholds.json when available.
-    # They adapt to the Ridge model's shrunk prediction range, ensuring the
-    # top 25% of predictions → BUY and the bottom 25% → SELL.
-    # Falls back to the legacy integer convention if the file is missing.
-    thresholds = load_thresholds(ticker)
-    signal = prediction_to_signal(raw_pred, thresholds)
-    style  = SIGNAL_STYLE[signal]
-
-    # Try extracting prediction confidence from classifiers that expose
-    # predict_proba().  If not available (e.g. plain regression), skip.
+    # Extract prediction confidence from the classifier's predict_proba().
+    # confidence < 0.52 → HOLD (low confidence); otherwise BUY or SELL.
     confidence = None
     if hasattr(model, "predict_proba"):
         try:
@@ -273,6 +245,9 @@ if model is not None:
             confidence = float(max(proba))   # probability of the predicted class
         except Exception:
             confidence = None
+
+    signal = prediction_to_signal(pred_class, confidence)
+    style  = SIGNAL_STYLE[signal]
 
     # Render signal label in large coloured text.
     sig_col, conf_col, *_ = st.columns([1, 2, 3])

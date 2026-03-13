@@ -71,36 +71,30 @@ class Signal(str, Enum):
     HOLD = "HOLD"
 
 
-def prediction_to_signal(prediction, thresholds: dict | None = None) -> Signal:
-    """Convert a raw model prediction to a trading signal.
+def prediction_to_signal(prediction, confidence: float | None = None) -> Signal:
+    """Convert a classifier prediction (0 or 1) and optional confidence to a Signal.
 
-    If ``thresholds`` is provided (dict with "buy" and "sell" float keys),
-    uses percentile-based comparison against the model's own prediction
-    distribution — precomputed at training time and stored in
-    model/trained/thresholds.json:
-        pred > thresholds["buy"]  → BUY
-        pred < thresholds["sell"] → SELL
-        otherwise                 → HOLD
+    Parameters
+    ----------
+    prediction : int
+        1 → predicted up   (generates BUY if confident enough)
+        0 → predicted down (generates SELL if confident enough)
+    confidence : float | None
+        max(predict_proba) for the predicted class.
+        If provided and < 0.52, returns HOLD (low-confidence prediction).
+        If None, confidence threshold is not applied.
 
-    If ``thresholds`` is None (e.g. thresholds.json is missing), falls back to
-    the legacy integer convention so the app never crashes:
-        1  → BUY
-        -1 → SELL
-        0  → HOLD
+    Returns
+    -------
+    Signal.BUY  — prediction == 1 and confidence >= 0.52 (or confidence not given)
+    Signal.SELL — prediction == 0 and confidence >= 0.52 (or confidence not given)
+    Signal.HOLD — confidence < 0.52 (low-confidence prediction)
     """
-    if thresholds is not None:
-        if prediction > thresholds["buy"]:
-            return Signal.BUY
-        elif prediction < thresholds["sell"]:
-            return Signal.SELL
+    if confidence is not None and confidence < 0.52:
         return Signal.HOLD
-
-    # Legacy fallback: integer class labels used before thresholds were introduced.
     if prediction == 1:
         return Signal.BUY
-    elif prediction == -1:
-        return Signal.SELL
-    return Signal.HOLD
+    return Signal.SELL
 
 
 def backtest(predictions, actuals) -> dict:
