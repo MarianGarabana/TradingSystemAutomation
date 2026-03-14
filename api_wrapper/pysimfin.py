@@ -18,7 +18,6 @@ Example usage:
 
 import os
 import time
-from typing import Optional
 
 import pandas as pd
 import requests
@@ -45,7 +44,7 @@ class PySimFin:
     maintain at most 2 requests per second.
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         # API key can be passed explicitly or loaded from the SIMFIN_API_KEY
         # environment variable / .env file via python-dotenv.
         self.api_key = api_key or os.getenv("SIMFIN_API_KEY")
@@ -54,9 +53,10 @@ class PySimFin:
                 "SimFin API key not found. Set SIMFIN_API_KEY in your .env file."
             )
 
-        # reuse a single requests.Session for connection pooling — avoids
-        # re-doing the TCP handshake on every call, which matters when fetching
-        # data for 30 tickers in a loop.
+        # requests.Session reuses the same connection for all API calls.
+        # Without it, Python opens and closes a fresh connection on every request.
+        # With 30 tickers × ~4 calls each = 120 requests, this saves a lot of time.
+        # Think of it like keeping a door open instead of knocking each time.
         self.session = requests.Session()
         self.session.headers.update({"Authorization": f"api-key {self.api_key}"})
 
@@ -73,6 +73,9 @@ class PySimFin:
         the remaining fraction of _MIN_REQUEST_INTERVAL — this way the method
         adds zero latency when the caller is slower than 2 req/sec themselves.
         """
+        # time.time() returns the current time as a float (seconds since Jan 1 1970).
+        # Subtracting the time of the last request gives us elapsed seconds.
+        # We only sleep if we haven't waited long enough since the last request.
         elapsed = time.time() - self._last_request_time
         if elapsed < _MIN_REQUEST_INTERVAL:
             time.sleep(_MIN_REQUEST_INTERVAL - elapsed)
@@ -108,7 +111,9 @@ class PySimFin:
                 f"with params {params}. Check that the ticker exists."
             )
 
-        # Raise for any other 4xx / 5xx codes (e.g. 401 bad API key, 500 server error).
+        # raise_for_status() is a requests shortcut: it automatically raises an
+        # HTTPError exception if the status code is 4xx or 5xx (e.g. 401 bad key,
+        # 500 server crash). Same as writing: if response.status_code >= 400: raise ...
         response.raise_for_status()
         return response.json()
 
@@ -328,7 +333,62 @@ class PySimFin:
 
         return merged
 
-    # ── Individual statement methods (kept for completeness and direct access) ──
+    # ── Private helper for single-statement fetches ────────────────────────────
+
+    def _fetch_statement_df(
+        self,
+        ticker: str,
+        stmt_type: str,
+        period: str = "quarterly",
+    ) -> pd.DataFrame:
+        """Fetch one statement type (PL, BS, or CF) and return it as a DataFrame.
+
+        This is a private helper used by get_income_statements, get_balance_sheets,
+        and get_cash_flow_statements. All three follow the exact same steps — the
+        only difference is the stmt_type string. Extracting the shared logic here
+        avoids copy-pasting the same 15 lines three times.
+
+        Parameters
+        ----------
+        ticker : str
+            Company ticker symbol.
+        stmt_type : str
+            One of "PL" (income), "BS" (balance sheet), "CF" (cash flow).
+        period : str
+            "quarterly" (default) or "annual".
+
+        Returns
+        -------
+        pd.DataFrame
+            One row per fiscal period. Empty DataFrame if no data is available.
+        """
+        # Map user-friendly period name to the SimFin API's period parameter.
+        # Quarterly means all four quarters; annual only returns full-year rows.
+        simfin_period = "Q1,Q2,Q3,Q4" if period == "quarterly" else "FY"
+
+        params = {
+            "ticker": ticker,
+            "statements": stmt_type,
+            "period": simfin_period,
+        }
+        raw = self._get("companies/statements/verbose", params)
+
+        if not raw:
+            return pd.DataFrame()
+
+        # The API wraps the data in two layers of nesting:
+        #   raw → list of companies → each company has a "statements" list
+        #                           → each statement has a "data" list of rows
+        # We split this into two steps so it's easier to follow.
+        statements = raw[0].get("statements", [])   # list of statement dicts
+        data_rows = statements[0].get("data", []) if statements else []
+
+        df = pd.DataFrame(data_rows)
+        if "Report Date" in df.columns:
+            df["Report Date"] = pd.to_datetime(df["Report Date"])
+        return df
+
+    # ── Individual statement methods ────────────────────────────────────────────
 
     def get_income_statements(
         self,
@@ -351,25 +411,7 @@ class PySimFin:
 
         Endpoint: GET /companies/statements/verbose (statements=PL)
         """
-        # Map user-friendly period name to the SimFin API's period parameter.
-        # Quarterly means all four quarters; annual only returns full-year rows.
-        simfin_period = "Q1,Q2,Q3,Q4" if period == "quarterly" else "FY"
-
-        params = {
-            "ticker": ticker,
-            "statements": "PL",
-            "period": simfin_period,
-        }
-        raw = self._get("companies/statements/verbose", params)
-
-        if not raw:
-            return pd.DataFrame()
-
-        data_rows = raw[0].get("statements", [{}])[0].get("data", [])
-        df = pd.DataFrame(data_rows)
-        if "Report Date" in df.columns:
-            df["Report Date"] = pd.to_datetime(df["Report Date"])
-        return df
+        return self._fetch_statement_df(ticker, stmt_type="PL", period=period)
 
     def get_balance_sheets(
         self,
@@ -392,23 +434,7 @@ class PySimFin:
 
         Endpoint: GET /companies/statements/verbose (statements=BS)
         """
-        simfin_period = "Q1,Q2,Q3,Q4" if period == "quarterly" else "FY"
-
-        params = {
-            "ticker": ticker,
-            "statements": "BS",
-            "period": simfin_period,
-        }
-        raw = self._get("companies/statements/verbose", params)
-
-        if not raw:
-            return pd.DataFrame()
-
-        data_rows = raw[0].get("statements", [{}])[0].get("data", [])
-        df = pd.DataFrame(data_rows)
-        if "Report Date" in df.columns:
-            df["Report Date"] = pd.to_datetime(df["Report Date"])
-        return df
+        return self._fetch_statement_df(ticker, stmt_type="BS", period=period)
 
     def get_cash_flow_statements(
         self,
@@ -431,20 +457,4 @@ class PySimFin:
 
         Endpoint: GET /companies/statements/verbose (statements=CF)
         """
-        simfin_period = "Q1,Q2,Q3,Q4" if period == "quarterly" else "FY"
-
-        params = {
-            "ticker": ticker,
-            "statements": "CF",
-            "period": simfin_period,
-        }
-        raw = self._get("companies/statements/verbose", params)
-
-        if not raw:
-            return pd.DataFrame()
-
-        data_rows = raw[0].get("statements", [{}])[0].get("data", [])
-        df = pd.DataFrame(data_rows)
-        if "Report Date" in df.columns:
-            df["Report Date"] = pd.to_datetime(df["Report Date"])
-        return df
+        return self._fetch_statement_df(ticker, stmt_type="CF", period=period)
