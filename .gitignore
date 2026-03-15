@@ -2,7 +2,7 @@
 .env
 
 # --- Data (never commit bulk CSVs) ---
-data/
+data/raw/
 
 # --- Python cache ---
 __pycache__/

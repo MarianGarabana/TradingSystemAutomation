@@ -105,7 +105,9 @@ def load_ticker_data(ticker: str) -> tuple[pd.DataFrame, str]:
     try:
         from api_wrapper.pysimfin import PySimFin  # imported here to avoid crashing if
                                                    # the module or dotenv key is missing
-        client = PySimFin()
+        api_key = st.secrets.get("SIMFIN_API_KEY") or os.getenv("SIMFIN_API_KEY")
+        client = PySimFin(api_key=api_key)
+
         df_prices = client.get_share_prices(ticker, start=start, end=today)
 
         # The API's get_share_prices() returns Date, OHLCV, Dividend, Shares Outstanding.
