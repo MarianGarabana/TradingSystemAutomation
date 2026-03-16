@@ -2,6 +2,8 @@
 
 A machine learning–based stock trading prediction system built with SimFin financial data.
 
+**Live app:** https://pythongroupassignment.streamlit.app/
+
 ## Team
 
 | Name | Role |
