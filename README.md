@@ -10,7 +10,7 @@ A machine learning–based stock trading prediction system built with SimFin fin
 |------|------|
 | *Marian Garabana* | ETL / Data Engineering |
 | *Jorge Vildoso* | ML Model |
-| *Add your name* | API Wrapper |
+| *TBD* | API Wrapper |
 | *Marian Garabana* | Streamlit App |
 
 ## Project Overview
