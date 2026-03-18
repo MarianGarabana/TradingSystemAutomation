@@ -3,6 +3,7 @@ etl.py — Extract, Transform, Load pipeline for SimFin financial data.
 
 Usage:
     python etl/etl.py --ticker AAPL
+    python etl/etl.py --all
 
 Improvements over baseline:
 - Uses Adj. Close instead of Close for all price-based calculations,
@@ -325,11 +326,29 @@ def run(ticker: str) -> pd.DataFrame | None:
         return None
 
 
+ALL_TICKERS = [
+    # Standard pool (25) — price + volatility + fundamentals
+    "AAPL", "ADBE", "AMD", "AMZN", "AVGO", "COST", "CRM", "DIS", "GOOG", "INTC",
+    "JNJ", "KO", "MCD", "META", "MSFT", "NFLX", "NVDA", "ORCL", "PEP", "PFE",
+    "PLTR", "QCOM", "TSLA", "UNH", "WMT",
+    # Fallback pool (5) — price + volatility only (no fundamentals)
+    "BAC", "GS", "JPM", "MA", "V",
+]
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ETL pipeline for a stock ticker.")
-    parser.add_argument("--ticker", required=True, help="Stock ticker symbol, e.g. AAPL")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--ticker", help="Single stock ticker symbol, e.g. AAPL")
+    group.add_argument("--all", action="store_true", help="Run ETL for all 30 project tickers")
     args = parser.parse_args()
 
-    result = run(args.ticker)
-    if result is None:
+    tickers = ALL_TICKERS if args.all else [args.ticker]
+    failed = []
+    for t in tickers:
+        result = run(t)
+        if result is None:
+            failed.append(t)
+
+    if failed:
+        logger.error(f"ETL failed for: {failed}")
         sys.exit(1)
