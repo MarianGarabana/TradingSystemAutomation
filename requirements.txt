@@ -11,6 +11,7 @@ lightgbm>=4.0.0
 
 # App
 streamlit>=1.30.0
+plotly>=5.18.0
 
 # Utilities
 python-dotenv>=1.0.0
