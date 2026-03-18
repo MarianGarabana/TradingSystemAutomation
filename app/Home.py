@@ -203,7 +203,7 @@ if not ticker_df.empty:
 
     with filter_col:
         sectors = ["All sectors"] + sorted(ticker_df["Sector"].unique().tolist())
-        selected_sector = st.selectbox("Sector", sectors)
+        selected_sector = st.selectbox('Sector',sectors)
 
     with search_col:
         search = st.text_input(
@@ -247,7 +247,7 @@ if not ticker_df.empty:
             values="Count",
             title="Tickers by sector",
             hole=0.45,
-            color_discrete_sequence=px.colors.qualitative.Set2,
+            color_discrete_sequence=["#89F336", "#D1E231", "#f6c86a", "#ADEBB3"],
         )
         fig.update_traces(textposition="inside", textinfo="percent+label")
         fig.update_layout(
