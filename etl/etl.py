@@ -327,8 +327,8 @@ def run(ticker: str) -> pd.DataFrame | None:
 
 
 ALL_TICKERS = [
-    # Standard pool (25) — price + volatility + fundamentals
-    "AAPL", "ADBE", "AMD", "AMZN", "AVGO", "COST", "CRM", "DIS", "GOOG", "INTC",
+    # Standard pool (26) — price + volatility + fundamentals
+    "AAPL", "ABBV", "ADBE", "AMD", "AMZN", "AVGO", "COST", "CRM", "DIS", "GOOG", "INTC",
     "JNJ", "KO", "MCD", "META", "MSFT", "NFLX", "NVDA", "ORCL", "PEP", "PFE",
     "PLTR", "QCOM", "TSLA", "UNH", "WMT",
     # Fallback pool (5) — price + volatility only (no fundamentals)
@@ -339,7 +339,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ETL pipeline for a stock ticker.")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--ticker", help="Single stock ticker symbol, e.g. AAPL")
-    group.add_argument("--all", action="store_true", help="Run ETL for all 30 project tickers")
+    group.add_argument("--all", action="store_true", help="Run ETL for all 31 project tickers")
     args = parser.parse_args()
 
     tickers = ALL_TICKERS if args.all else [args.ticker]

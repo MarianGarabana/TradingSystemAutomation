@@ -122,6 +122,28 @@ def load_ticker_data(ticker: str) -> tuple[pd.DataFrame, str]:
         # training, so the feature set is guaranteed to be identical to what the model
         # was trained on (no train/serve skew).
         df = engineer_features(df_prices)
+
+        # Standard tickers use 16 features (price + vol + 5 fundamental ratios).
+        # The live price API only returns price data, so we attach the last-known
+        # fundamental values from the processed CSV. Fundamentals change quarterly,
+        # so these values are valid for inference — same assumption as merge_asof
+        # direction='backward' used at training time.
+        if not is_fallback_ticker(ticker):
+            _FUND_COLS = [
+                "Gross_Margin", "Operating_Margin", "Net_Margin",
+                "Debt_to_Equity", "Operating_CF_Ratio",
+            ]
+            try:
+                csv_df = _load_processed_csv(ticker)
+                last_fund = csv_df[_FUND_COLS].dropna().iloc[-1]
+                for col in _FUND_COLS:
+                    df[col] = last_fund[col]
+            except Exception:
+                # If CSV is unavailable, fill with NaN — the app degrades
+                # gracefully rather than crashing.
+                for col in _FUND_COLS:
+                    df[col] = float("nan")
+
         return df, "live"
 
     except Exception:

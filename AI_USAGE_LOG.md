@@ -133,3 +133,14 @@ all four versions side by side. Inline comments explain every non-obvious choice
 **What didn't work:** Some comments and markdowns where too long and detailed.
 **What we changed:** Reviewed the comments and markdowns and make some adjustments to make them more concise and clear.
 **What we learned:** AI usually gives us a good starting point, but we need to review and refine it to make sure it meets our needs.
+
+---
+
+### 2026-03-18 — Jorge Vildoso — Claude (claude-sonnet-4-6)
+**Task:** Use the 5 fundamental features in the standard model, add ABBV to the training pool and fix the live inference path
+**Prompt (summary):** We noticed that the standard model was supposed to use 16 features (price + volatility + 5 fundamental ratios) while the fallback model uses 11 (no fundamentals), but in practice both were using the same 11 features because the fundamental columns were commented out in `strategy.py`. We asked Claude to do a deep review of all affected files and propose a plan to fix everything end to end.
+**Output summary:** Claude read `strategy.py`, `train.py`, `etl.py`, `go_live.py`, and the processed CSVs to map the full picture. It identified four things that needed to change: (1) uncomment the 5 fundamental features in `STANDARD_FEATURE_COLS` in `strategy.py`; (2) add ABBV to `ALL_TICKERS` in `etl.py` and regenerate its CSV with fundamentals; (3) fix a hidden crash in the live API path of `go_live.py`; (4) update `train.py`.
+**What worked well:** Claude spotted the live inference crash before we hit it in production. Propose a clear plan we could review and implement.
+**What didn't work:** Nothing failed.
+**What we changed:** Accepted all four code changes as proposed. The solution for the live inference path (attach last-known fundamentals from CSV) was chosen over the alternative (fetch fundamentals live from the API) because it is simpler and requires no extra API calls.
+**What we learned:** Changing a feature schema is not just a one-line edit — it touches every place the model is loaded and used. The most value contribution of AI was to trace all the parts of the code that use the features and find all the places that needed to be updated.
