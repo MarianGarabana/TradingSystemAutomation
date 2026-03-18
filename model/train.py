@@ -3,13 +3,15 @@ train.py — Production ML training script for the trading system.
 
 Two pooled models are trained — one per feature schema:
 
-  model_pooled.pkl           Standard model (25 tickers, 11 features)
+  model_pooled.pkl           Standard model (26 tickers, 16 features)
                              Covers all tickers except the 5 fallback ones.
+                             Features: 6 price + 5 vol-normalised + 5 fundamental.
 
   model_pooled_fallback.pkl  Fallback model (5 tickers, 11 features)
                              Covers BAC, GS, JPM, MA, V — tickers where
                              fundamental data is unavailable or structurally
                              incompatible (banks / payment networks).
+                             Features: 6 price + 5 vol-normalised (no fundamentals).
 
 Training strategy:
   - Binary classification: target = 1 if next-day return > 0 else 0.
@@ -28,7 +30,7 @@ Training strategy:
   - After model selection, the full classification_report is logged.
 
 Usage:
-    # Train BOTH models — covers all 30 tickers (recommended)
+    # Train BOTH models — covers all 31 tickers (recommended)
     python model/train.py --all
 
     # Train a single-ticker model for quick local testing only
@@ -393,7 +395,7 @@ def _train_pooled(
 def train_pooled_standard() -> str:
     """Train the standard pooled model on all non-fallback tickers.
 
-    Uses STANDARD_FEATURE_COLS (11 features: price + vol).
+    Uses STANDARD_FEATURE_COLS (16 features: price + vol + fundamentals).
     Saves to model/trained/model_pooled.pkl.
     """
     all_tickers = discover_tickers()
@@ -466,7 +468,7 @@ def train_ticker(ticker: str) -> str:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Train the pooled trading models covering all 30 tickers."
+        description="Train the pooled trading models covering all 31 tickers."
     )
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
@@ -474,7 +476,7 @@ if __name__ == "__main__":
         action="store_true",
         help=(
             f"Train BOTH pooled models (recommended): "
-            f"{STANDARD_MODEL_FILE} (standard, 11 features) and "
+            f"{STANDARD_MODEL_FILE} (standard, 16 features) and "
             f"{FALLBACK_MODEL_FILE} (fallback for {sorted(FALLBACK_TICKERS)}, 11 features)."
         ),
     )
