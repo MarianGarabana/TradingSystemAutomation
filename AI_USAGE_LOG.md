@@ -121,3 +121,15 @@ This file documents all use of AI tools (ChatGPT, Claude, Copilot, etc.) during 
 **What worked well:** The four-file change was clean and coherent. The percentile approach is self-adapting: it will always generate exactly 25% BUY and 25% SELL signals regardless of the model's prediction range.
 **What we changed:** No code changes beyond the spec. The existing `.pkl` files were reused without retraining — `compute_and_save_thresholds()` only runs inference to compute percentiles.
 **What we learned:** Percentile-based thresholds are a simple and robust solution for models (like Ridge with high alpha) whose output range is much narrower than any hardcoded threshold. The key insight is that the absolute prediction magnitudes don't necessarily matter, what matters is the relative rank of each prediction within the model's own distribution.
+
+---
+
+### 2026-03-18 — Jorge Vildoso — Claude (claude-sonnet-4-6)
+**Task:** Unify the ML iteration history into a single notebook and refine the current comments and markdowns
+**Prompt (summary):** Asked Claude to take the four separate ML evaluations and consolidate them into a single `notebooks/ml_exploration.ipynb` that tells the full iteration story. Asked for refine the markdown cells and comments.
+**Output summary:** Claude restructured the notebook into 5 sections covering the models journey, with markdown cells explaining what was tried and what changed. The v4 section calls `model/train.py` directly to avoid duplicating production code. A final summary table compares
+all four versions side by side. Inline comments explain every non-obvious choice (e.g. why StandardScaler is applied only to LinearRegression, why thresholds are computed from the training set only, why zero-return rows are dropped for binary classification).
+**What worked well:** Having all four iterations in one notebook makes the exploration narrative clear and easy to follow for graders. The markdown sections between code blocks explain the "why" behind each change, not just the "what".
+**What didn't work:** Some comments and markdowns where too long and detailed.
+**What we changed:** Reviewed the comments and markdowns and make some adjustments to make them more concise and clear.
+**What we learned:** AI usually gives us a good starting point, but we need to review and refine it to make sure it meets our needs.
