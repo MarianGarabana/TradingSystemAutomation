@@ -53,9 +53,9 @@ trading-app/
 ├── requirements.txt
 ├── AI_USAGE_LOG.md
 ├── .env.example
-├── data/               # local only — git-ignored
-│   ├── raw/
-│   └── processed/
+├── data/
+│   ├── raw/            # git-ignored — SimFin bulk CSVs (download locally)
+│   └── processed/      # committed — 31 per-ticker processed CSVs (ETL output)
 ├── notebooks/
 │   ├── etl_exploration.ipynb
 │   └── ml_exploration.ipynb
@@ -78,7 +78,7 @@ trading-app/
 
 ## Data
 
-Raw data is downloaded from [SimFin](https://simfin.com/) and stored locally in `data/raw/`. It is **never committed** to the repo.
+Raw data is downloaded from [SimFin](https://simfin.com/) and stored locally in `data/raw/` — this folder is **git-ignored** and must be downloaded locally. Processed CSVs (`data/processed/`) are committed to the repo and contain the ETL output (one CSV per ticker, 22 features + Target).
 
 ## AI Usage
 
