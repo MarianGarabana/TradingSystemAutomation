@@ -105,7 +105,15 @@ def load_ticker_data(ticker: str) -> tuple[pd.DataFrame, str]:
     try:
         from api_wrapper.pysimfin import PySimFin  # imported here to avoid crashing if
                                                    # the module or dotenv key is missing
-        api_key = st.secrets.get("SIMFIN_API_KEY") or os.getenv("SIMFIN_API_KEY")
+        # Importing pysimfin runs load_dotenv(), so os.getenv() works after this line.
+        # st.secrets throws StreamlitSecretNotFoundError locally (no secrets.toml),
+        # so it must be wrapped separately — we only use it as a cloud fallback.
+        api_key = os.getenv("SIMFIN_API_KEY")
+        if not api_key:
+            try:
+                api_key = st.secrets.get("SIMFIN_API_KEY")
+            except Exception:
+                pass
         client = PySimFin(api_key=api_key)
 
         df_prices = client.get_share_prices(ticker, start=start, end=today)
