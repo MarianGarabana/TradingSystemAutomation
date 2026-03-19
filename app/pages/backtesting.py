@@ -136,14 +136,14 @@ def run_backtest(df: pd.DataFrame, model, feature_cols: list[str]) -> tuple[pd.D
         X = df[feature_cols]
 
         # Classifier output: 1 = up (BUY), 0 = down (SELL).
-        pred_classes = model.predict(X.values)
+        pred_classes = model.predict(X)
         df["Predicted"] = pred_classes.astype(int)
 
         # Apply confidence threshold: rows where max(predict_proba) < 0.52
         # are treated as HOLD (no position) — mapped to 0 in the simulation.
         if hasattr(model, "predict_proba"):
             try:
-                probas = model.predict_proba(X.values)
+                probas = model.predict_proba(X)
                 confidence = probas.max(axis=1)
                 df.loc[confidence < 0.52, "Predicted"] = 0
             except Exception:
