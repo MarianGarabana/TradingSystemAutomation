@@ -22,6 +22,13 @@ Training strategy:
     appear last alphabetically in the concatenated pool.
   - Four models are evaluated: LogisticRegression (with StandardScaler + C CV),
     RandomForestClassifier, GradientBoostingClassifier, and LightGBM.
+  - ALL classifiers use balanced class weights (v6):
+      LogisticRegression      → class_weight='balanced' in constructor
+      RandomForestClassifier  → class_weight='balanced' in constructor
+      GradientBoostingClassifier → sample_weight=compute_sample_weight('balanced') in .fit()
+      LGBMClassifier          → is_unbalance=True in constructor
+    This compensates for the UP bias in daily returns (more UP days than DOWN)
+    and ensures DOWN recall is not collapsed to near-zero.
   - StandardScaler is applied ONLY to LogisticRegression. Tree-based models
     (RF, GBR, LightGBM) are scale-invariant and do not require normalisation.
   - LogisticRegression C is selected via TimeSeriesSplit(n_splits=5) CV on the
@@ -52,6 +59,7 @@ from sklearn.metrics import accuracy_score, classification_report, f1_score
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.utils.class_weight import compute_sample_weight
 
 # Add project root to sys.path so we can import from model/strategy.py.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -176,6 +184,7 @@ def _build_rf() -> RandomForestClassifier:
         max_depth=8,
         min_samples_leaf=15,
         max_features=0.7,
+        class_weight="balanced",
         random_state=42,
         n_jobs=-1,
     )
@@ -214,6 +223,7 @@ def _build_lgbm():
             min_child_samples=50,
             colsample_bytree=0.8,
             subsample=0.7,
+            is_unbalance=True,
             random_state=42,
             n_jobs=-1,
             verbose=-1,  # suppress LightGBM's own stdout logging
@@ -348,10 +358,17 @@ def _train_pooled(
     )
 
     # ── Train all candidates, evaluate on held-out test set ───────────────────
+    # GradientBoostingClassifier does not accept class_weight in its constructor;
+    # balanced sample weights are passed directly to .fit() instead.
+    gbr_sample_weight = compute_sample_weight("balanced", y_train)
+
     best_name, best_model, best_acc = None, None, -float("inf")
     results = []
     for name, model in candidates:
-        model.fit(X_train, y_train)
+        if isinstance(model, GradientBoostingClassifier):
+            model.fit(X_train, y_train, sample_weight=gbr_sample_weight)
+        else:
+            model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
         acc = accuracy_score(y_test, y_pred)
         results.append((name, model, acc, y_pred))
