@@ -311,14 +311,14 @@ if model is not None:
     # Using a DataFrame (not a plain array) preserves column names, which
     # sklearn pipelines require to match the training schema exactly.
     X_latest = pd.DataFrame([last[get_feature_cols(ticker)]])
-    pred_class = int(model.predict(X_latest)[0])
+    pred_class = int(model.predict(X_latest.values)[0])
 
     # Extract prediction confidence from the classifier's predict_proba().
     # confidence < 0.52 → HOLD (low confidence); otherwise BUY or SELL.
     confidence = None
     if hasattr(model, "predict_proba"):
         try:
-            proba = model.predict_proba(X_latest)[0]
+            proba = model.predict_proba(X_latest.values)[0]
             confidence = float(max(proba))   # probability of the predicted class
         except Exception:
             confidence = None
