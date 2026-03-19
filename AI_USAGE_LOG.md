@@ -144,3 +144,14 @@ all four versions side by side. Inline comments explain every non-obvious choice
 **What didn't work:** Nothing failed.
 **What we changed:** Accepted all four code changes as proposed. The solution for the live inference path (attach last-known fundamentals from CSV) was chosen over the alternative (fetch fundamentals live from the API) because it is simpler and requires no extra API calls.
 **What we learned:** Changing a feature schema is not just a one-line edit — it touches every place the model is loaded and used. The most value contribution of AI was to trace all the parts of the code that use the features and find all the places that needed to be updated.
+
+---
+
+### 2026-03-19 — Jorge Vildoso — Claude (claude-sonnet-4-6)
+**Task:** Diagnose and fix a production crash on the live Streamlit app
+**Prompt (summary):** Shared a screenshot of the app crashing with a `ValueError` inside sklearn's prediction code. Asked Claude to analyse the error and propose a fix.
+**Output summary:** Claude traced the full call stack from `go_live.py` down into sklearn's internal validation function. It identified the root cause: our `requirements.txt` had `scikit-learn>=1.3.0` with no upper bound, so Streamlit Cloud was free to install the latest version of sklearn — which turned out to be stricter about validating input data when the model had been pickled on a different version locally.
+**What worked well:** The diagnosis was fast and accurate. Claude followed the traceback step by step and landed on the real cause without going in circles.
+**What didn't work:** Nothing.
+**What we changed:** Accepted all proposed changes as-is. Three files updated: `requirements.txt`, `go_live.py`, `backtesting.py`.
+**What we learned:** Pinning only a minimum version in `requirements.txt` is risky for deployed apps — cloud platforms will always install the latest compatible version, which may behave differently from what you tested locally.
