@@ -12,10 +12,19 @@ CHANGES FROM STUB:
   - Compares strategy cumulative return vs. buy-and-hold on a chart.
   - Shows rolling 30-day accuracy chart (reveals if the model degrades over time).
   - Shows per-row signal history table for the last 30 days.
+
+OOS BOUNDARY (added):
+  - Computes the approximate out-of-sample start date per ticker by mirroring
+    the 80/20 temporal split applied in model/train.py._split_ticker.
+  - Date picker defaults to the OOS start so users see out-of-sample results
+    by default.
+  - Both charts display a vertical dashed line at the training cutoff.
+  - A warning is shown when the selected range includes in-sample dates.
 """
 
 import os
 import sys
+from datetime import date
 
 import joblib
 import matplotlib.pyplot as plt
@@ -61,6 +70,26 @@ def load_processed(ticker: str) -> pd.DataFrame:
     path = os.path.join(PROCESSED_DIR, f"{ticker}.csv")
     df = pd.read_csv(path, parse_dates=["Date"])
     return df.sort_values("Date").reset_index(drop=True)
+
+
+def compute_oos_start_date(df: pd.DataFrame, ticker: str) -> date:
+    """Return the approximate out-of-sample start date for this ticker.
+
+    Mirrors the 80/20 temporal split in model/train.py._split_ticker exactly:
+      1. Drop rows with NaN in any feature or the Target column.
+      2. Drop rows where Target == 0 (ambiguous — excluded from training too).
+      3. Take the date at index int(len * 0.8) — first row of the held-out set.
+
+    This date is used to:
+      - Default the backtest start date picker to the OOS window.
+      - Draw a "Training cutoff" vertical line on the charts.
+      - Warn the user when their selected range includes in-sample data.
+    """
+    feature_cols = get_feature_cols(ticker)
+    clean = df.dropna(subset=feature_cols + ["Target"])
+    clean = clean[clean["Target"] != 0].reset_index(drop=True)
+    split_idx = int(len(clean) * 0.8)
+    return clean.iloc[split_idx]["Date"].date()
 
 
 def load_model(ticker: str):
@@ -153,7 +182,27 @@ def run_backtest(df: pd.DataFrame, model, feature_cols: list[str]) -> tuple[pd.D
 
 # ── Chart helpers ──────────────────────────────────────────────────────────────
 
-def plot_cumulative_return(df: pd.DataFrame, strategy_label: str) -> plt.Figure:
+def _draw_oos_line(ax, oos_start_date: date, df: pd.DataFrame) -> None:
+    """Draw a vertical dashed line at the training cutoff if it falls within the chart range."""
+    chart_start = df["Date"].min().date()
+    chart_end   = df["Date"].max().date()
+    if not (chart_start < oos_start_date < chart_end):
+        return
+    oos_ts = pd.Timestamp(oos_start_date)
+    ax.axvline(oos_ts, color="#f5a623", linewidth=1.2, linestyle="--", alpha=0.8)
+    ax.text(
+        oos_ts, 1.0,
+        "  Training cutoff — out-of-sample begins",
+        color="#f5a623", fontsize=7.5, va="top", rotation=90, alpha=0.85,
+        transform=ax.get_xaxis_transform(),
+    )
+
+
+def plot_cumulative_return(
+    df: pd.DataFrame,
+    strategy_label: str,
+    oos_start_date: date | None = None,
+) -> plt.Figure:
     """Line chart comparing strategy portfolio value vs. buy-and-hold over time."""
     fig, ax = plt.subplots(figsize=(10, 4))
     fig.patch.set_facecolor("#0d0d0d")
@@ -171,11 +220,19 @@ def plot_cumulative_return(df: pd.DataFrame, strategy_label: str) -> plt.Figure:
     for spine in ax.spines.values():
         spine.set_edgecolor("#333333")
     ax.legend(facecolor="#1a1a1a", labelcolor="#f0f0f0")
+
+    if oos_start_date is not None:
+        _draw_oos_line(ax, oos_start_date, df)
+
     fig.tight_layout()
     return fig
 
 
-def plot_rolling_accuracy(df: pd.DataFrame, window: int = 30) -> plt.Figure:
+def plot_rolling_accuracy(
+    df: pd.DataFrame,
+    window: int = 30,
+    oos_start_date: date | None = None,
+) -> plt.Figure:
     """Rolling accuracy chart: shows whether prediction quality is stable over time.
 
     A flat line suggests consistent performance; a declining trend may indicate
@@ -198,6 +255,10 @@ def plot_rolling_accuracy(df: pd.DataFrame, window: int = 30) -> plt.Figure:
     ax.tick_params(colors="#f0f0f0")
     for spine in ax.spines.values():
         spine.set_edgecolor("#333333")
+
+    if oos_start_date is not None:
+        _draw_oos_line(ax, oos_start_date, df)
+
     fig.tight_layout()
     return fig
 
@@ -222,16 +283,35 @@ df_full = load_processed(ticker)
 min_date = df_full["Date"].min().date()
 max_date = df_full["Date"].max().date()
 
+# Compute the out-of-sample start date (mirrors the 80/20 split in train.py).
+# Default the start picker to this date so users see OOS results by default.
+oos_start_date = compute_oos_start_date(df_full, ticker)
+
 with col_start:
-    start_date = st.date_input("Start date", value=min_date, min_value=min_date, max_value=max_date)
+    start_date = st.date_input(
+        "Start date",
+        value=oos_start_date,
+        min_value=min_date,
+        max_value=max_date,
+        help=f"Training cutoff for this ticker is {oos_start_date}. "
+             "Dates before that overlap with the model's training data.",
+    )
 with col_end:
-    end_date   = st.date_input("End date",   value=max_date, min_value=min_date, max_value=max_date)
+    end_date = st.date_input("End date", value=max_date, min_value=min_date, max_value=max_date)
 
 run_btn = st.button("▶ Run Backtest", type="primary")
 
 if not run_btn:
     st.info("Select a ticker and date range, then press **Run Backtest**.")
     st.stop()
+
+# ── In-sample warning ──────────────────────────────────────────────────────────
+if start_date < oos_start_date:
+    st.warning(
+        f"⚠️ Dates before **{oos_start_date}** overlap with the model's training data. "
+        "Results in this region are not predictive — the model has already seen these patterns. "
+        f"For a fair evaluation, set the start date to **{oos_start_date}** or later."
+    )
 
 # ── Run ────────────────────────────────────────────────────────────────────────
 
@@ -292,7 +372,7 @@ st.divider()
 
 # ── Cumulative return chart ────────────────────────────────────────────────────
 st.subheader("Portfolio Value Over Time")
-st.pyplot(plot_cumulative_return(result_df, strategy_label))
+st.pyplot(plot_cumulative_return(result_df, strategy_label, oos_start_date))
 
 st.divider()
 
@@ -302,7 +382,7 @@ st.caption(
     "A value above 50% means the model is beating random guessing. "
     "A declining trend may indicate the model is drifting with changing market conditions."
 )
-st.pyplot(plot_rolling_accuracy(result_df))
+st.pyplot(plot_rolling_accuracy(result_df, oos_start_date=oos_start_date))
 
 st.divider()
 
