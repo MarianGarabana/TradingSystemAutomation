@@ -155,3 +155,14 @@ all four versions side by side. Inline comments explain every non-obvious choice
 **What didn't work:** Nothing.
 **What we changed:** Accepted all proposed changes as-is. Three files updated: `requirements.txt`, `go_live.py`, `backtesting.py`.
 **What we learned:** Pinning only a minimum version in `requirements.txt` is risky for deployed apps — cloud platforms will always install the latest compatible version, which may behave differently from what you tested locally.
+
+---
+
+### 2026-03-19 — Jorge Vildoso — Claude (claude-sonnet-4-6)
+**Task:** Apply balanced class weights to all the models reviewed to solve the UP bias problem
+**Prompt (summary):** The models showed strong UP bias. Asked Claude to add `class_weight='balanced'` to RF, `sample_weight=compute_sample_weight('balanced')` to GBC's `.fit()` call, `is_unbalance=True` to LGBM and execute the training according to the code review in Machine Learning class.
+**Output summary:** Claude modified `train.py` (4 targeted edits: import, RF constructor, LGBM constructor, GBR fit call), ran `python model/train.py --all` to produce new `.pkl` files.
+**What worked well:** Claude's execution was precise, it identified that GBC requires a different mechanism (`sample_weight` in `.fit()`) vs the other classifiers (constructor parameter), which is a non-obvious API difference.
+**What didn't work:** Nothing failed.
+**What we changed:** Accepted all changes as proposed. The training confirmed: standard winner switched from GBC → LogReg(C=0.01, balanced).
+**What we learned:** Balanced weights are the correct default for any classification problem with a structural class imbalance in the base rate.
