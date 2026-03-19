@@ -284,6 +284,8 @@ weighted avg       0.54      0.55      0.48      1214
 | Standard F1 (macro) | — | — | — | — | ~0.50 | 0.50 | **0.50** |
 | Fallback F1 (macro) | — | — | — | — | ~0.44 | 0.44 | **0.46** |
 
+> **Note:** Macro F1 is the fair cross-version comparison metric. Accuracy is misleading here because an UP-biased model (v5 GBC, UP recall=0.66) scores higher accuracy than a balanced model (v6 LogReg, UP recall=0.41) on a test set that is 52.7% UP — the accuracy gap reflects bias removal, not skill loss.
+
 ---
 
 ## 9. Key Findings
