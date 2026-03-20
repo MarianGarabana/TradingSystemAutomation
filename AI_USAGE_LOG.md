@@ -166,3 +166,14 @@ all four versions side by side. Inline comments explain every non-obvious choice
 **What didn't work:** Nothing failed.
 **What we changed:** Accepted all changes as proposed. The training confirmed: standard winner switched from GBC → LogReg(C=0.01, balanced).
 **What we learned:** Balanced weights are the correct default for any classification problem with a structural class imbalance in the base rate.
+
+---
+
+### 2026-03-20 — Marian Garabana — Claude (claude-sonnet-4-6)
+**Task:** Implement the prediction page (`app/pages/prediction_bet.py`)
+**Prompt (summary):** Asked Claude to build the prediction bet page for the Streamlit app. A page where users can simulate a bet on a stock based on the model's prediction and see whether the outcome was correct.
+**Output summary:** Claude designed the full skeleton of the page: layout structure, UI sections (ticker selector, bet input, prediction display, outcome reveal), and the wiring to the existing model inference and API fetch logic. Claude also diagnosed and fixed several bugs in the SimFin API fetch path that caused incorrect or missing data to be returned during live inference.
+**What worked well:** The design skeleton was solid on the first attempt: the section layout, component ordering, and the flow from ticker selection to prediction to outcome matched what was needed without major rework. The API bug fixes were accurate and targeted.
+**What didn't work:** Some API fetch calls were returning wrong or no data due to parameter mismatches in the wrapper. Claude identified and fixed these.
+**What we changed:** Every proposed change was reviewed and approved before execution, no code was applied without consent. Some minor UI tweaks were made after the skeleton was in place to match the existing app theme and improve the design principles of the application overall. 
+**What we learned:** Having a clear page skeleton before filling in logic makes it much easier to design in a more structured and organized way.

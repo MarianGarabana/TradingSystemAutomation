@@ -1,47 +1,17 @@
 """
-train.py — Production ML training script for the trading system.
+Training script for the two pooled trading models.
 
-Two pooled models are trained — one per feature schema:
+Trains a binary classifier per ticker group (next-day price direction: 1=UP, 0=DOWN).
+Four candidates per pool — LogReg, Random Forest, GBC, LightGBM — evaluated with an
+80/20 temporal split applied per ticker. All use balanced class weights. Best test
+accuracy wins and gets saved as the .pkl file.
 
-  model_pooled.pkl           Standard model (26 tickers, 16 features)
-                             Covers all tickers except the 5 fallback ones.
-                             Features: 6 price + 5 vol-normalised + 5 fundamental.
-
-  model_pooled_fallback.pkl  Fallback model (5 tickers, 11 features)
-                             Covers BAC, GS, JPM, MA, V — tickers where
-                             fundamental data is unavailable or structurally
-                             incompatible (banks / payment networks).
-                             Features: 6 price + 5 vol-normalised (no fundamentals).
-
-Training strategy:
-  - Binary classification: target = 1 if next-day return > 0 else 0.
-    Rows with exact zero next-day return are dropped (ambiguous direction).
-  - 80/20 temporal split applied PER TICKER before pooling.
-    Each ticker contributes its own final 20% period to the test set,
-    preventing the test set from being dominated by whichever tickers
-    appear last alphabetically in the concatenated pool.
-  - Four models are evaluated: LogisticRegression (with StandardScaler + C CV),
-    RandomForestClassifier, GradientBoostingClassifier, and LightGBM.
-  - ALL classifiers use balanced class weights (v6):
-      LogisticRegression      → class_weight='balanced' in constructor
-      RandomForestClassifier  → class_weight='balanced' in constructor
-      GradientBoostingClassifier → sample_weight=compute_sample_weight('balanced') in .fit()
-      LGBMClassifier          → is_unbalance=True in constructor
-    This compensates for the UP bias in daily returns (more UP days than DOWN)
-    and ensures DOWN recall is not collapsed to near-zero.
-  - StandardScaler is applied ONLY to LogisticRegression. Tree-based models
-    (RF, GBR, LightGBM) are scale-invariant and do not require normalisation.
-  - LogisticRegression C is selected via TimeSeriesSplit(n_splits=5) CV on the
-    training set, optimising for mean accuracy across folds.
-  - The model with the highest test accuracy is saved as the .pkl file.
-  - After model selection, the full classification_report is logged.
+  model_pooled.pkl           26 tickers, 16 features (price + vol + fundamentals)
+  model_pooled_fallback.pkl   5 financial tickers, 11 features (no fundamentals)
 
 Usage:
-    # Train BOTH models — covers all 31 tickers (recommended)
-    python model/train.py --all
-
-    # Train a single-ticker model for quick local testing only
-    python model/train.py --ticker AAPL
+    python model/train.py --all            # train both models
+    python model/train.py --ticker AAPL    # single-ticker, dev only
 """
 
 import argparse
@@ -129,18 +99,8 @@ def _select_logistic_C(
     y_train: pd.Series,
     label: str,
 ) -> float:
-    """Select the best LogisticRegression C via TimeSeriesSplit CV on the training set.
-
-    Evaluates each C in _LR_C_VALUES using 5-fold time-series CV.
-    Selection criterion: mean accuracy across folds.
-
-    Parameters
-    ----------
-    X_train : feature matrix (training split only — never touches test set)
-    y_train : binary target vector (0=down, 1=up)
-    label   : pool label for log messages ("standard" or "fallback")
-
-    Returns the selected C value.
+    """Pick the best C for LogisticRegression using 5-fold TimeSeriesSplit CV.
+    Only uses the training set — test set is never touched here.
     """
     tscv = TimeSeriesSplit(n_splits=5)
     best_C, best_score = _LR_C_VALUES[0], -float("inf")
@@ -262,31 +222,10 @@ def _train_pooled(
     model_filename: str,
     label: str,
 ) -> str:
-    """Pool data from `tickers`, train on `feature_cols`, save to `model_filename`.
+    """Pool data from `tickers`, train classifiers on `feature_cols`, save best to `model_filename`.
 
-    Per-ticker temporal split is applied before pooling: each ticker's own
-    final 20% of rows is reserved for the test set. Rows with zero Target are
-    dropped before splitting (ambiguous for binary classification).
-
-    Binary target: y = 1 if next-day return > 0 else 0.
-
-    Four models are trained and evaluated on the held-out test set:
-      - LogisticRegression (with StandardScaler + C selected via TimeSeriesSplit CV)
-      - RandomForestClassifier   (scale-invariant tree model — no scaler)
-      - GradientBoostingClassifier  (scale-invariant tree model — no scaler)
-      - LGBMClassifier  (scale-invariant — skipped if not installed)
-
-    The model with the highest test accuracy is saved as the .pkl file.
-    After selection, the full classification_report is logged.
-
-    Parameters
-    ----------
-    tickers        : ticker symbols to include in the training pool
-    feature_cols   : feature column list (STANDARD_FEATURE_COLS or FALLBACK_FEATURE_COLS)
-    model_filename : output filename inside model/trained/
-    label          : label for log messages, e.g. "standard" or "fallback"
-
-    Returns the path to the saved .pkl file.
+    Per-ticker 80/20 temporal split before pooling. Binary target: 1=UP, 0=DOWN.
+    Evaluates LogReg, RF, GBC, and LightGBM — saves the one with best test accuracy.
     """
     logger.info(f"[{label}] Loading data for {len(tickers)} tickers: {tickers}")
 
