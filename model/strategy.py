@@ -84,16 +84,16 @@ def prediction_to_signal(prediction, confidence: float | None = None) -> Signal:
         0 → predicted down (generates SELL if confident enough)
     confidence : float | None
         max(predict_proba) for the predicted class.
-        If provided and < 0.52, returns HOLD (low-confidence prediction).
+        If provided and < 0.51, returns HOLD (low-confidence prediction).
         If None, confidence threshold is not applied.
 
     Returns
     -------
-    Signal.BUY  — prediction == 1 and confidence >= 0.52 (or confidence not given)
-    Signal.SELL — prediction == 0 and confidence >= 0.52 (or confidence not given)
-    Signal.HOLD — confidence < 0.52 (low-confidence prediction)
+    Signal.BUY  — prediction == 1 and confidence >= 0.51 (or confidence not given)
+    Signal.SELL — prediction == 0 and confidence >= 0.51 (or confidence not given)
+    Signal.HOLD — confidence < 0.51 (low-confidence prediction)
     """
-    if confidence is not None and confidence < 0.52:
+    if confidence is not None and confidence < 0.51:
         return Signal.HOLD
     if prediction == 1:
         return Signal.BUY

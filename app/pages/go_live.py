@@ -322,7 +322,7 @@ if model is not None:
     pred_class = int(model.predict(X_latest.values)[0])
 
     # Extract prediction confidence from the classifier's predict_proba().
-    # confidence < 0.52 → HOLD (low confidence); otherwise BUY or SELL.
+    # confidence < 0.51 → HOLD (low confidence); otherwise BUY or SELL.
     confidence = None
     if hasattr(model, "predict_proba"):
         try:
@@ -342,11 +342,32 @@ if model is not None:
             f"{style['emoji']} {style['label']}</h1>",
             unsafe_allow_html=True,
         )
-    # Show confidence progress bar only when we have a probability score.
+    # Signal Strength = |confidence − 0.50| / 0.50 × 100
+    # Three discrete bar levels using theme accent color at increasing opacity:
+    #   HOLD               → weak     → 1/3 bar, opacity 0.30
+    #   BUY/SELL, str < 15 → moderate → 2/3 bar, opacity 0.65
+    #   BUY/SELL, str ≥ 15 → strong   → full bar, opacity 1.00
     if confidence is not None:
         with conf_col:
-            st.markdown(f"**Confidence:** {confidence * 100:.1f}%")
-            st.progress(confidence)
+            strength = abs(confidence - 0.50) / 0.50 * 100  # 0–100 scale
+            if signal == Signal.HOLD:
+                tier_label = "Weak signal of the model — Recommended to HOLD"
+                bar_fill, bar_opacity = 33, 0.30
+            elif strength < 15:
+                tier_label = f"Moderate conviction — {style['label']}"
+                bar_fill, bar_opacity = 66, 0.65
+            else:
+                tier_label = f"Strong conviction — {style['label']}"
+                bar_fill, bar_opacity = 100, 1.00
+            st.markdown(
+                f"""
+                <div style="background:#3a3a3a;border-radius:6px;height:10px;width:100%;margin-bottom:6px">
+                  <div style="background:var(--primary-color);opacity:{bar_opacity};border-radius:6px;height:10px;width:{bar_fill}%"></div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.caption(f"{tier_label} · Signal Strength: {strength:.1f}%")
 else:
     # Model file not found — app still works, just without a prediction.
     st.warning(
