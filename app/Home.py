@@ -95,16 +95,6 @@ st.divider()
 
 # ── Feature cards ──────────────────────────────────────────────────────────────
 # Force equal height on the three bordered containers.
-st.markdown(
-    """
-    <style>
-    div[data-testid="stVerticalBlockBorderWrapper"] {
-        min-height: 420px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 left, mid, right = st.columns(3, gap="medium")
 
 with left:
@@ -112,7 +102,7 @@ with left:
         st.markdown("### 🚀 Go Live")
         st.markdown(
             "Select a stock ticker and get **today's ML-generated trading signal** "
-            "— Buy, Sell, or Hold — powered by fresh data from the SimFin API."
+            "(Buy, Sell, or Hold), powered by fresh data from the SimFin API."
         )
         st.markdown("- Live price data via SimFin API")
         st.markdown("- BUY / SELL / HOLD signal with confidence score")
@@ -129,6 +119,7 @@ with mid:
         st.markdown("- UP / DOWN bet with 1x – 10x leverage")
         st.markdown("- AI signal vs. your direction comparison")
         st.markdown("- Entry/exit price chart + top signal drivers")
+        st.markdown("&nbsp;")
         st.page_link("pages/2_prediction_bet.py", label="Open Prediction Bet →", icon="🎯")
 
 with right:
@@ -141,6 +132,8 @@ with right:
         st.markdown("- Strategy return vs. buy-and-hold")
         st.markdown("- Rolling 30-day accuracy over time")
         st.markdown("- Full signal history table")
+        st.markdown("&nbsp;")
+        st.markdown("&nbsp;")
         st.page_link("pages/3_backtesting.py", label="Open Backtesting →", icon="🔍")
 
 st.divider()
