@@ -169,6 +169,17 @@ all four versions side by side. Inline comments explain every non-obvious choice
 
 ---
 
+### 2026-03-20 — Jorge Vildoso — Claude (claude-sonnet-4-6)
+**Task:** Diagnose and fix a UI misalignment between the Sector filter and the Search bar in the Home page
+**Prompt (summary):** Shared a screenshot of the "Supported companies" section in `app/Home.py` showing the Sector dropdown and the Search text input visually misaligned — the search bar appeared higher than the dropdown. Asked Claude to analyse the problem and propose a fix.
+**Output summary:** Claude identified the root cause: the `st.selectbox` for Sector has a visible label (`'Sector'`) rendered above it, while the `st.text_input` for Search used `label_visibility="collapsed"`, which removes the label entirely and reclaims its vertical space. Since Streamlit allocates fixed vertical space for input labels, the collapsed label caused the search bar to sit higher than the dropdown. Claude proposed two options: (A) switch `label_visibility` from `"collapsed"` to `"hidden"` — same text is hidden but the vertical space is preserved, aligning both inputs; (B) remove the Sector label and render both labels manually via `st.markdown`. Option A was applied: a single one-word change in `Home.py` fixed the alignment.
+**What worked well:** Root cause identification was immediate and precise — Claude recognised the `"collapsed"` vs `"hidden"` distinction in Streamlit's label visibility API and explained why it causes the misalignment. The proposed fix was minimal (one word change) with zero side effects.
+**What didn't work:** Nothing failed.
+**What we changed:** Changed `label_visibility="collapsed"` to `label_visibility="hidden"` in the `st.text_input` call for the company search bar (`app/Home.py`, line 214).
+**What we learned:** Streamlit has three `label_visibility` modes: `"visible"` (label shown), `"hidden"` (label hidden but space reserved), and `"collapsed"` (label hidden and space removed). When placing inputs side by side where only some have visible labels, `"hidden"` must be used on the others to maintain vertical alignment.
+
+---
+
 ### 2026-03-20 — Marian Garabana — Claude (claude-sonnet-4-6)
 **Task:** Implement the prediction page (`app/pages/prediction_bet.py`)
 **Prompt (summary):** Asked Claude to build the prediction bet page for the Streamlit app. A page where users can simulate a bet on a stock based on the model's prediction and see whether the outcome was correct.

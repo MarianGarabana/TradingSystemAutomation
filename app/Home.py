@@ -145,8 +145,8 @@ with tab2:
         """
         We train **two pooled classification models**, one per ticker group:
 
-        - **Standard model** — 25 tickers (Technology, Healthcare, Consumer)
-        - **Fallback model** — 5 Financial tickers (banks & payment networks)
+        - **Standard model** — 26 tickers (Technology, Healthcare, Consumer)
+        - **Fallback model** — 5 Financial tickers (Banks & Payment Networks)
 
         Four candidate algorithms are evaluated — Logistic Regression, Random Forest,
         Gradient Boosting, and LightGBM — using **time-series cross-validation**
@@ -211,7 +211,7 @@ if not ticker_df.empty:
         search = st.text_input(
             label="Search",
             placeholder="Search by ticker or company name (e.g. AAPL or Apple)...",
-            label_visibility="collapsed",
+            label_visibility="hidden",
         )
 
     # Apply filters

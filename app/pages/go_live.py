@@ -221,6 +221,7 @@ def plot_price(df: pd.DataFrame, ticker: str) -> plt.Figure:
 
     ax.set_title(f"{ticker} — Price (last 90 days)", color="#f0f0f0", fontsize=13)
     ax.tick_params(colors="#f0f0f0")
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
     for spine in ax.spines.values():
         spine.set_edgecolor("#333333")
     ax.legend(facecolor="#1a1a1a", labelcolor="#f0f0f0", fontsize=9)
@@ -251,6 +252,7 @@ def plot_rsi(df: pd.DataFrame) -> plt.Figure:
     ax.set_ylim(0, 100)   # RSI is always in [0, 100]
     ax.set_title("RSI (14)", color="#f0f0f0", fontsize=11)
     ax.tick_params(colors="#f0f0f0")
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
     for spine in ax.spines.values():
         spine.set_edgecolor("#333333")
     fig.tight_layout()
@@ -278,6 +280,7 @@ def plot_macd(df: pd.DataFrame) -> plt.Figure:
 
     ax.set_title("MACD", color="#f0f0f0", fontsize=11)
     ax.tick_params(colors="#f0f0f0")
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
     for spine in ax.spines.values():
         spine.set_edgecolor("#333333")
     ax.legend(facecolor="#1a1a1a", labelcolor="#f0f0f0", fontsize=8)
