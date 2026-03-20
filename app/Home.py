@@ -88,7 +88,7 @@ st.markdown(
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Supported tickers", len(ticker_df))
 col2.metric("Data range", "2020 – 2024")
-col3.metric("Model type", "XGBoost / LightGBM")
+col3.metric("Model type", "Logistic Reg. / GBC")
 col4.metric("Data source", "SimFin")
 
 st.divider()
@@ -134,8 +134,8 @@ with tab1:
         for 29 US companies across four sectors. The ETL pipeline:
 
         1. **Cleans** price errors — outlier returns are detected and forward-filled
-        2. **Engineers 11 technical features** — MA5, MA20, RSI, MACD, Bollinger Bands,
-           log returns, 20-day volatility, and two normalised lag returns
+        2. **Engineers technical indicators** — moving averages, RSI, MACD, Bollinger Bands,
+           volatility-normalised returns, and quarterly fundamental ratios (margins, leverage, cash flow)
         3. **Exports** a clean processed CSV per ticker, ready for model training
         """
     )
