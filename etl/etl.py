@@ -1,20 +1,13 @@
 """
-etl.py — Extract, Transform, Load pipeline for SimFin financial data.
+ETL pipeline for SimFin financial data.
+
+Loads bulk CSVs from data/raw/, cleans price errors, merges quarterly
+fundamentals using a point-in-time join (no look-ahead bias), engineers
+technical and fundamental features, and saves one processed CSV per ticker.
 
 Usage:
     python etl/etl.py --ticker AAPL
     python etl/etl.py --all
-
-Improvements over baseline:
-- Uses Adj. Close instead of Close for all price-based calculations,
-  which accounts for stock splits and dividends for historical accuracy.
-- Handles extreme price errors (|return| > 50%) by nullifying the price and
-  forward-filling, preserving time-series continuity. Return and Volume_Change
-  are then winsorized at the 1st/99th percentile to bound outlier influence.
-- Uses Python's logging module instead of print() for structured output.
-- Enriches price data with quarterly fundamental ratios (point-in-time merge,
-  no look-ahead bias) from income, balance sheet, and cash flow statements.
-- Prints a data quality summary after each run.
 """
 
 import argparse
