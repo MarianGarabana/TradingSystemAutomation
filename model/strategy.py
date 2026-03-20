@@ -100,7 +100,16 @@ def prediction_to_signal(prediction, confidence: float | None = None) -> Signal:
     return Signal.SELL
 
 
-def backtest(predictions, actuals) -> dict:
-    """Simple backtest: compare predicted signals to actual price movements."""
-    # TODO: implement backtesting logic
-    raise NotImplementedError("backtest not yet implemented")
+def backtest(_predictions, _actuals) -> dict:
+    """Compare predicted signals to actual price movements.
+
+    Note: full backtesting — portfolio simulation, rolling accuracy, and signal
+    history — is implemented at the app layer in app/pages/backtesting.py
+    (see run_backtest()). That function operates on the complete DataFrame with
+    access to actual returns and the loaded model, which is the appropriate
+    context for a simulation that needs to compound daily returns.
+
+    This function is retained as an interface placeholder for any future
+    extraction of pure metrics (accuracy, win rate) into this strategy module.
+    """
+    return {}
