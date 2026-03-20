@@ -242,8 +242,10 @@ def plot_signal_accuracy(
     buy_correct  = np.where(df["Predicted"] == 1, df["Correct"], np.nan)
     sell_correct = np.where(df["Predicted"] == 0, df["Correct"], np.nan)
 
-    buy_acc  = pd.Series(buy_correct,  index=df.index).rolling(window, min_periods=5).mean() * 100
-    sell_acc = pd.Series(sell_correct, index=df.index).rolling(window, min_periods=5).mean() * 100
+    # Forward-fill gaps so lines are continuous even when a signal type is absent
+    # for a stretch — avoids the broken/missing line segments in the chart.
+    buy_acc  = pd.Series(buy_correct,  index=df.index).ffill().rolling(window, min_periods=5).mean() * 100
+    sell_acc = pd.Series(sell_correct, index=df.index).ffill().rolling(window, min_periods=5).mean() * 100
 
     fig, ax = plt.subplots(figsize=(10, 3))
     fig.patch.set_facecolor("#0d0d0d")

@@ -235,7 +235,7 @@ def plot_rsi(df: pd.DataFrame) -> plt.Figure:
     The shaded areas and dashed lines are standard RSI visualisation conventions
     that help users interpret the signal without reading a number.
     """
-    fig, ax = plt.subplots(figsize=(5, 2.5))
+    fig, ax = plt.subplots(figsize=(5, 3.5))
     fig.patch.set_facecolor("#0d0d0d")
     ax.set_facecolor("#0d0d0d")
 
@@ -265,7 +265,7 @@ def plot_macd(df: pd.DataFrame) -> plt.Figure:
     The histogram (MACD - Signal) is green when MACD is above the signal
     (bullish momentum) and red when below (bearish momentum).
     """
-    fig, ax = plt.subplots(figsize=(5, 2.5))
+    fig, ax = plt.subplots(figsize=(5, 3.5))
     fig.patch.set_facecolor("#0d0d0d")
     ax.set_facecolor("#0d0d0d")
 
