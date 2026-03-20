@@ -94,6 +94,21 @@ col4.metric("Data source", "SimFin")
 st.divider()
 
 # ── Feature cards ──────────────────────────────────────────────────────────────
+# Force equal height on the three bordered containers.
+st.markdown(
+    """
+    <style>
+    div[data-testid="stHorizontalBlock"]:has(> div[data-testid="stColumn"]) {
+        align-items: stretch;
+    }
+    div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]
+        > div[data-testid="stVerticalBlockBorderWrapper"] {
+        height: 100%;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 left, mid, right = st.columns(3, gap="large")
 
 with left:
@@ -286,6 +301,7 @@ if not ticker_df.empty:
         fig.update_traces(textposition="inside", textinfo="percent+label")
         fig.update_layout(
             showlegend=False,
+            height=350,
             margin=dict(t=50, b=0, l=0, r=0),
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
