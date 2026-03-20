@@ -1,432 +1,358 @@
 # ML Model Evaluation Report
-## Trading System Automation — Next-Day Return Prediction
+## Trading System Automation — Next-Day Direction Classification
 
 **Date:** March 2026
-**Dataset:** SimFin bulk CSV — 30 US large-cap tickers, 2020–2024
-**Evaluation scope:** Per-ticker prototype (sections 2–3) + Production pooled models (section 6)
-**Source:** `notebooks/ml_exploration.ipynb` (sections 5–6 per-ticker; section 8 pooled production)
+**Dataset:** SimFin bulk CSV — 31 US large-cap tickers, 2020–2025
+**Evaluation scope:** Production pooled classifiers v6 — class-balanced training
+**Changes from v5:**
+- **Balanced class weights applied to ALL four classifiers** — addresses the strong UP bias observed in v5 (standard GBC: DOWN recall 0.35; fallback GBC: DOWN recall 0.11).
+  - `LogisticRegression`: `class_weight='balanced'` (already set in v5, no change)
+  - `RandomForestClassifier`: `class_weight='balanced'` added
+  - `GradientBoostingClassifier`: `sample_weight=compute_sample_weight('balanced', y_train)` passed to `.fit()`
+  - `LGBMClassifier`: `is_unbalance=True` added
+- **Standard pool winner changed** — GradientBoostingClassifier (v5) replaced by LogisticRegression(C=0.01, balanced) (v6). With balanced weights, tree ensembles can no longer exploit the UP frequency shortcut; LogReg's L2-regularised linear boundary becomes the strongest model on the standard pool.
+- **Standard pool accuracy** — 51.55% (v5 GBC) → 50.08% (v6 LogReg). Small drop expected: the model no longer predicts UP on 66% of days.
+- **Fallback pool winner unchanged** — GradientBoostingClassifier remains the winner (54.86% vs 55.68% in v5). Small accuracy drop due to balanced weights.
+- **DOWN recall substantially improved in standard pool** — 0.35 → 0.61 (LogReg now issues meaningful SELL signals). Fallback pool DOWN recall: 0.11 → 0.16 (modest improvement).
+
+**Source:** `python model/train.py --all`
+→ `model/trained/model_pooled.pkl` (LogisticRegression C=0.01 balanced, 26 tickers, 16 features)
+→ `model/trained/model_pooled_fallback.pkl` (GBC balanced weights, 5 tickers, 11 features)
 
 ---
 
 ## 1. Problem Setup
 
 ### Task
-Predict the **next-day log return** of a stock price (continuous regression). The raw prediction is then converted to a trading signal:
+Directly predict **next-day stock price direction** as a binary classification problem:
 
-| Predicted return | Signal |
-|---|---|
-| > +2.0% | HIGH RISE → **BUY** |
-| +0.5% to +2.0% | LOW RISE → **BUY** |
-| −0.5% to +0.5% | STAY → **HOLD** |
-| −2.0% to −0.5% | LOW FALL → **SELL** |
-| < −2.0% | HIGH FALL → **SELL** |
+| Class | Meaning | Signal |
+|---|---|---|
+| **1** (UP) | Next-day return > 0 | BUY (if confidence >= 0.51) |
+| **0** (DOWN) | Next-day return < 0 | SELL (if confidence >= 0.51) |
+| — | Either class | HOLD (if max(predict_proba) < 0.51) |
 
 ### Target variable
 ```
-Target = Adj_Close.pct_change().shift(-1)
+Target = Adj_Close.pct_change().shift(-1)    # continuous return from ETL (unchanged)
+y_binary = (Target > 0).astype(int)          # derived at training time
+# Rows where Target == 0 are dropped (ambiguous direction)
 ```
-This is the **next-day forward return** — the quantity the model is asked to predict. It is computed at ETL time and stored in each processed CSV. NaN in the last row (no future price) is dropped before training.
 
-### Feature set (16 features)
+### Feature set
 
-| Group | Features | Notes |
+#### Standard schema — 16 features (unchanged from v5)
+
+| Group | Features | Count |
 |---|---|---|
-| Price-based (6) | MA5, MA20, Volume_Change, Market_Cap, RSI, MACD | Standard technical indicators |
-| Volatility-normalised (5) | Log_Return, Volatility_20, Return_norm, Return_norm_Lag1, Return_norm_Lag2 | Key for cross-ticker pooling — risk-adjusts returns so KO and TSLA are comparable |
-| Fundamental (5) | Gross_Margin, Operating_Margin, Net_Margin, Debt_to_Equity, Operating_CF_Ratio | Quarterly, point-in-time merged via `merge_asof(direction='backward')` on Publish Date |
+| Price-based | MA5, MA20, Volume_Change, Market_Cap, RSI, MACD | 6 |
+| Volatility-normalised | Log_Return, Volatility_20, Return_norm, Return_norm_Lag1, Return_norm_Lag2 | 5 |
+| Fundamental (quarterly, point-in-time) | Gross_Margin, Operating_Margin, Net_Margin, Debt_to_Equity, Operating_CF_Ratio | 5 |
+| **Total** | | **16** |
 
-**Fallback schema (11 features):** BAC, GS, JPM, MA, V lack fundamental data (bank income statements use a non-standard format; Mastercard/Visa have no Gross Profit line). These tickers use only the price-based + volatility-normalised groups.
+#### Fallback schema — 11 features (unchanged from v5)
+
+| Group | Features | Count |
+|---|---|---|
+| Price-based | MA5, MA20, Volume_Change, Market_Cap, RSI, MACD | 6 |
+| Volatility-normalised | Log_Return, Volatility_20, Return_norm, Return_norm_Lag1, Return_norm_Lag2 | 5 |
+| **Total** | | **11** |
+
+The fallback schema covers BAC, GS, JPM, MA, V — tickers where fundamental data is structurally incompatible.
 
 ### Train / test split
-- **Method:** Temporal 80/20 split per ticker — rows sorted by date, last 20% held out.
-- **No shuffling** — shuffling would constitute look-ahead bias by allowing future price information to leak into training.
-- **NaN handling:** Rows with any NaN in the feature or target columns are dropped before the split index is computed (not after), so the 80/20 ratio applies to usable rows only.
+- **Method:** Temporal 80/20 split per ticker before pooling (unchanged from v5).
+- **No shuffling** — look-ahead bias prevention.
+- **Zero-return rows dropped** before splitting (ambiguous for binary target).
 
-### Models evaluated
-Three families, each representing a different inductive bias:
+### Class balancing — v6 change
 
-| Model | Scaling | Key property |
+| Classifier | v5 mechanism | v6 mechanism |
 |---|---|---|
-| LinearRegression | StandardScaler applied | Interpretable; assumes linear feature-target relationship; severely distorted by Market_Cap (~10¹²) vs Log_Return (~0.01) without scaling |
-| RandomForestRegressor (200 trees) | None — scale-invariant | Bagged decision trees; captures non-linear interactions; low variance via averaging |
-| GradientBoostingRegressor (200 estimators) | None — scale-invariant | Boosted trees; typically strongest on tabular data; higher risk of overfitting on small datasets |
+| `LogisticRegression` | `class_weight='balanced'` | Same (no change) |
+| `RandomForestClassifier` | No balancing | `class_weight='balanced'` added |
+| `GradientBoostingClassifier` | No balancing | `sample_weight=compute_sample_weight('balanced', y_train)` in `.fit()` |
+| `LGBMClassifier` | No balancing | `is_unbalance=True` added |
 
-### Evaluation metrics
-- **MAE (Mean Absolute Error):** Average magnitude of prediction error. Same unit as the target (daily return). E.g., MAE=0.015 means the model is off by ~1.5 percentage points on average.
-- **RMSE (Root Mean Squared Error):** Penalises large errors more than MAE. Useful for detecting outlier predictions.
-- **R² (Coefficient of Determination):** Fraction of target variance explained by the model. R²=1.0 is perfect; R²=0.0 means the model is no better than predicting the mean; **R²<0 means the model is worse than predicting the mean**.
-- **Direction Accuracy:** Fraction of test rows where `sign(predicted) == sign(actual)`. This is the most operationally relevant metric for a trading system — a model that predicts the direction correctly >50% of the time has positive expected value even if R² is low.
+`class_weight='balanced'` scales each sample's loss contribution by `n_samples / (n_classes * class_count)`. This penalises errors on the minority class (DOWN, ~48% of days) equally to errors on the majority class (UP, ~52% of days), preventing models from exploiting the base rate by defaulting to UP.
 
 ---
 
-## 2. Per-Ticker Results — Regression Metrics (R², MAE, RMSE)
+## 2–5. Per-Ticker Prototype Results (historical reference)
 
-> **Note:** BAC, GS, JPM, MA, V are skipped in this per-ticker evaluation because all 16 features are NaN for these tickers (fundamental data unavailable). They are handled by the fallback pooled model.
-
-### 2.1 Complete results table
-
-| Ticker | Model | MAE | RMSE | R² |
-|---|---|---|---|---|
-| AAPL | LinearRegression | 0.01428 | 0.01812 | −0.3792 |
-| AAPL | RandomForest | 0.01584 | 0.02037 | −0.7435 |
-| AAPL | GradientBoosting | 0.02637 | 0.03412 | **−3.891** |
-| ADBE | LinearRegression | 0.01423 | 0.02215 | −0.0612 |
-| ADBE | RandomForest | 0.01419 | 0.02173 | −0.0207 |
-| ADBE | GradientBoosting | 0.01522 | 0.02238 | −0.0829 |
-| AMD | LinearRegression | 0.02156 | 0.02850 | −0.0340 |
-| AMD | RandomForest | 0.02340 | 0.02993 | −0.1405 |
-| AMD | GradientBoosting | 0.02676 | 0.03449 | −0.5139 |
-| AMZN | LinearRegression | 0.01436 | 0.01896 | −0.0411 |
-| AMZN | RandomForest | 0.01572 | 0.02110 | −0.2894 |
-| AMZN | GradientBoosting | 0.01739 | 0.02260 | −0.4789 |
-| AVGO | LinearRegression | 0.03874 | 0.05204 | −0.7627 |
-| AVGO | RandomForest | 0.03068 | 0.04246 | −0.1735 |
-| AVGO | GradientBoosting | 0.04300 | 0.05349 | −0.8624 |
-| COST | LinearRegression | 0.01107 | 0.01418 | −0.1547 |
-| COST | RandomForest | 0.01040 | 0.01371 | −0.0785 |
-| COST | GradientBoosting | 0.01135 | 0.01468 | −0.2371 |
-| CRM | LinearRegression | 0.01470 | 0.02343 | −0.0266 |
-| CRM | RandomForest | 0.01583 | 0.02452 | −0.1239 |
-| CRM | GradientBoosting | 0.01852 | 0.02756 | −0.4208 |
-| DIS | LinearRegression | 0.01016 | 0.01492 | **+0.0023** |
-| DIS | RandomForest | 0.01304 | 0.01795 | −0.4433 |
-| DIS | GradientBoosting | 0.03149 | 0.04064 | **−6.399** |
-| GOOG | LinearRegression | 0.01657 | 0.02106 | −0.3690 |
-| GOOG | RandomForest | 0.02578 | 0.02978 | −1.7375 |
-| GOOG | GradientBoosting | 0.04304 | 0.04768 | **−6.018** |
-| INTC | LinearRegression | 0.02422 | 0.03574 | −0.0159 |
-| INTC | RandomForest | 0.03322 | 0.04440 | −0.5675 |
-| INTC | GradientBoosting | 0.03943 | 0.05340 | −1.2672 |
-| JNJ | LinearRegression | 0.00811 | 0.01083 | −0.0251 |
-| JNJ | RandomForest | 0.00840 | 0.01114 | −0.0848 |
-| JNJ | GradientBoosting | 0.00881 | 0.01204 | −0.2662 |
-| KO | LinearRegression | 0.00879 | 0.01137 | −0.4124 |
-| KO | RandomForest | 0.02439 | 0.03334 | **−11.144** |
-| KO | GradientBoosting | 0.02641 | 0.03614 | **−13.276** |
-| MCD | LinearRegression | 0.00884 | 0.01193 | **+0.0061** |
-| MCD | RandomForest | 0.01073 | 0.01385 | −0.3398 |
-| MCD | GradientBoosting | 0.01419 | 0.01853 | −1.3969 |
-| META | LinearRegression | 0.01589 | 0.02107 | −0.1504 |
-| META | RandomForest | 0.01604 | 0.02167 | −0.2173 |
-| META | GradientBoosting | 0.02025 | 0.02478 | −0.5910 |
-| MSFT | LinearRegression | 0.01032 | 0.01395 | −0.0390 |
-| MSFT | RandomForest | 0.01065 | 0.01453 | −0.1273 |
-| MSFT | GradientBoosting | 0.01279 | 0.01639 | −0.4343 |
-| NFLX | LinearRegression | 0.01524 | 0.02153 | −0.2038 |
-| NFLX | RandomForest | 0.01459 | 0.02032 | −0.0715 |
-| NFLX | GradientBoosting | 0.01782 | 0.02397 | −0.4918 |
-| NVDA | LinearRegression | 0.02819 | 0.03719 | −0.0984 |
-| NVDA | RandomForest | 0.03224 | 0.04270 | −0.4481 |
-| NVDA | GradientBoosting | 0.04548 | 0.05766 | −1.6407 |
-| ORCL | LinearRegression | 0.01581 | 0.02426 | −0.0262 |
-| ORCL | RandomForest | 0.04245 | 0.04897 | −3.1819 |
-| ORCL | GradientBoosting | 0.03569 | 0.04402 | −2.3792 |
-| PEP | LinearRegression | 0.00858 | 0.01122 | −0.0749 |
-| PEP | RandomForest | 0.00852 | 0.01129 | −0.0889 |
-| PEP | GradientBoosting | 0.00888 | 0.01159 | −0.1468 |
-| PFE | LinearRegression | 0.01152 | 0.01487 | −0.0644 |
-| PFE | RandomForest | 0.01424 | 0.01808 | −0.5741 |
-| PFE | GradientBoosting | 0.02086 | 0.02664 | −2.4163 |
-| PLTR | LinearRegression | 0.04154 | 0.06054 | −0.9633 |
-| PLTR | RandomForest | 0.03574 | 0.05032 | −0.3567 |
-| PLTR | GradientBoosting | 0.03858 | 0.05338 | −0.5262 |
-| QCOM | LinearRegression | 0.01833 | 0.02438 | **+0.0123** |
-| QCOM | RandomForest | 0.02174 | 0.02843 | −0.3434 |
-| QCOM | GradientBoosting | 0.02436 | 0.03199 | −0.7012 |
-| TSLA | LinearRegression | 0.03136 | 0.04347 | −0.0190 |
-| TSLA | RandomForest | 0.03457 | 0.04749 | −0.2165 |
-| TSLA | GradientBoosting | 0.04219 | 0.05671 | −0.7348 |
-| UNH | LinearRegression | 0.03664 | 0.04957 | **−6.127** |
-| UNH | RandomForest | 0.01449 | 0.01988 | −0.1462 |
-| UNH | GradientBoosting | 0.01777 | 0.02283 | −0.5124 |
-| WMT | LinearRegression | 0.01455 | 0.01876 | **−0.997** |
-| WMT | RandomForest | 0.01101 | 0.01508 | −0.2913 |
-| WMT | GradientBoosting | 0.01130 | 0.01551 | −0.3654 |
-
-### 2.2 Summary statistics per model family
-
-Values exclude extreme outliers (KO RF/GBR, UNH LR, WMT LR) which are artefacts of per-ticker data scarcity rather than systematic model failure — see Section 4.2.
-
-| Metric | LinearRegression | RandomForest | GradientBoosting |
-|---|---|---|---|
-| Mean R² (all 25 tickers) | −0.67 | −0.84 | −1.63 |
-| Mean R² (excl. outliers) | −0.20 | −0.38 | −0.75 |
-| Tickers with R² > −0.1 | **13 / 25** | 6 / 25 | 2 / 25 |
-| Tickers with positive R² | **3 / 25** (DIS, MCD, QCOM) | 0 / 25 | 0 / 25 |
-| Mean MAE | 0.0175 | 0.0192 | 0.0231 |
-| Best MAE (lowest) | JNJ: 0.00811 | PEP: 0.00852 | JNJ: 0.00881 |
-| Worst MAE (highest) | PLTR: 0.04154 | ORCL: 0.04245 | NVDA: 0.04548 |
+> Unchanged from v5. See prior version history for the full per-ticker regression results (sections 2–5).
 
 ---
 
-## 3. Per-Ticker Results — Direction Accuracy
-
-Direction accuracy is the primary operational metric: does the model correctly predict whether the price will go up or down the next day?
-
-> **Baseline:** A coin flip = 50.0%. Any value consistently above 50% is exploitable in theory.
-
-| Ticker | LR Dir. Acc | RF Dir. Acc | GBR Dir. Acc | Best Model |
-|---|---|---|---|---|
-| AAPL | 44.40% | 41.38% | 43.97% | LR |
-| ADBE | 45.67% | 49.52% | 47.12% | RF |
-| AMD | 49.57% | 49.57% | 48.71% | LR / RF (tie) |
-| AMZN | 51.81% | 48.70% | **52.85%** | GBR |
-| AVGO | 50.50% | 50.00% | **53.50%** | GBR |
-| COST | 51.38% | **54.14%** | 53.04% | RF |
-| CRM | 50.42% | 53.33% | **57.92%** | GBR ⭐ |
-| DIS | 48.37% | **53.02%** | 53.49% | GBR |
-| GOOG | 42.67% | 42.24% | 42.24% | LR |
-| INTC | **50.21%** | 45.49% | 44.64% | LR |
-| JNJ | 49.77% | 54.34% | **57.08%** | GBR ⭐ |
-| KO | 46.35% | 47.64% | 47.64% | RF / GBR |
-| MCD | **51.81%** | 44.56% | 44.04% | LR |
-| META | 46.12% | **56.90%** | 46.12% | RF ⭐ |
-| MSFT | 46.12% | **53.02%** | 49.14% | RF |
-| NFLX | 48.93% | 46.35% | 48.93% | LR / GBR |
-| NVDA | 51.45% | 52.28% | **53.11%** | GBR |
-| ORCL | **49.37%** | 46.41% | 44.73% | LR |
-| PEP | **53.37%** | 47.15% | 45.60% | LR |
-| PFE | 53.68% | 50.22% | **54.55%** | GBR |
-| PLTR | 43.84% | 48.77% | **51.23%** | GBR |
-| QCOM | **56.90%** | 48.71% | 54.31% | LR ⭐ |
-| TSLA | **56.03%** | 46.98% | 47.84% | LR ⭐ |
-| UNH | 50.22% | 50.65% | **52.81%** | GBR |
-| WMT | 42.50% | 42.92% | **48.33%** | GBR |
-
-### 3.1 Average direction accuracy by model
-
-| Model | Mean Dir. Acc | Tickers > 50% | Tickers > 53% |
-|---|---|---|---|
-| LinearRegression | **49.3%** | 11 / 25 | 4 / 25 |
-| RandomForest | 49.0% | 12 / 25 | 5 / 25 |
-| GradientBoosting | **49.7%** | 15 / 25 | 8 / 25 |
-
-> ⭐ marks cases where direction accuracy exceeds 55% — potentially exploitable edge.
-
----
-
-## 4. Interpretation & Analysis
-
-### 4.1 Why are all R² values negative?
-
-A negative R² does not mean the model is "broken" — it means **the model's predictions vary less than the actual returns**, so its residuals are larger than simply predicting the mean return every day. This is expected in financial markets for two compounding reasons:
-
-1. **Market efficiency (EMH):** In liquid, large-cap US equities, publicly available information (price history, technical indicators, published financials) is quickly priced in by institutional traders. The portion of next-day return that can be explained by any systematic signal is very small — typically < 1% of variance. Positive R² in academic papers on return prediction is considered noteworthy.
-
-2. **Data scarcity per ticker:** Each per-ticker model is trained on ~750–960 usable rows (after NaN removal). This is a very small sample for an ensemble of 200 decision trees. Both RF and GBR are prone to overfitting on such datasets — they memorise training noise rather than learning generalisable patterns, producing poor out-of-sample R².
-
-3. **Signal-to-noise ratio:** Daily stock returns are dominated by noise. A typical large-cap stock has daily volatility of 1–3%. The predictable component (the signal) is believed to be an order of magnitude smaller. Measuring model quality with R² on a high-noise target produces near-zero or negative values even for genuinely predictive models.
-
-**Conclusion:** Negative R² is the expected baseline for this problem. The correct primary metric is direction accuracy, not R².
-
-### 4.2 Extreme outliers — KO, UNH, WMT, DIS, GOOG
-
-Several tickers show catastrophically negative R² for specific models:
-
-| Ticker | Model | R² | Root cause |
-|---|---|---|---|
-| KO | RF | −11.14 | RF severely overfits on ~930 rows; test set has some large-return events the model magnifies |
-| KO | GBR | −13.28 | Same cause, GBR amplifies the overfit further |
-| UNH | LR | −6.13 | StandardScaler is fit on training data; UNH had several large-return quarters (earnings surprises) in the test period that fall far outside the training distribution |
-| WMT | LR | −1.00 | WMT has unusually low return variance overall; LR predictions have higher variance than actuals in the test period |
-| DIS | GBR | −6.40 | DIS had structural disruption (streaming pivot, COVID impact) in the test period; GBR overfit training patterns that do not generalise |
-| GOOG | GBR | −6.02 | Same class of issue — large out-of-distribution events in test set |
-
-These are not model failures in the sense of implementation bugs — they reflect the **distribution shift** between the training and test periods, which is an inherent challenge in financial time series.
-
-### 4.3 LinearRegression outperforms tree models on R²
-
-Counterintuitively, LR has the least-negative R² in 17 out of 25 tickers. Two explanations:
-
-1. **Regularisation through simplicity:** With only 16 features and ~900 training samples, linear regression has fewer degrees of freedom and therefore overfits less. RF and GBR have hundreds of free parameters (200 trees × depth × splits) and overfit the noise in the training set.
-
-2. **Feature linearity:** The 5 volatility-normalised features (`Return_norm`, `Return_norm_Lag1`, `Return_norm_Lag2`, `Log_Return`, `Volatility_20`) are designed to be cross-sectionally comparable and may have a near-linear relationship with next-day returns in low-signal environments. Tree models need more data to discover and exploit non-linear interactions reliably.
-
-**Implication for the pooled model:** With ~25,000+ training rows (25 tickers × ~1,000 rows each), tree models should benefit much more from the larger dataset. The pooled model is expected to reverse this ranking — RF and GBR should generalise better at scale.
-
-### 4.4 Direction accuracy — the signal that matters
-
-Three of the four ⭐ tickers (CRM 57.9% GBR, JNJ 57.1% GBR, QCOM 56.9% LR, TSLA 56.0% LR) consistently exceed 55% direction accuracy. This is meaningful:
-
-- With 232 test rows and direction accuracy = 57%, the z-score vs 50% baseline is ~2.1 (p ≈ 0.036), suggesting a statistically significant edge for at least some ticker–model combinations.
-- META RF at 56.9% and PFE GBR at 54.6% also show consistent above-baseline performance.
-
-However, these are **per-ticker, in-sample regime** results — they reflect the test period of each ticker's own history. A proper out-of-time test (e.g., train on 2020–2023, test on 2024 only) would be needed to validate statistical significance across the full 30-ticker universe before drawing trading conclusions.
-
----
-
-## 5. Model Selection Rationale (Per-Ticker Prototype)
-
-### Per-ticker evaluation (this notebook)
-
-Based on the combined evidence:
-
-| Criterion | Winner | Notes |
-|---|---|---|
-| R² (least negative) | **LinearRegression** | 13/25 tickers with R² > −0.1 |
-| MAE (lowest error) | **LinearRegression** | Mean MAE 0.0175 vs RF 0.0192 |
-| Direction accuracy (mean) | **GradientBoosting** | 49.7% vs LR 49.3% |
-| Stability (no catastrophic outliers) | **LinearRegression** | GBR produces R² = −13.3 on KO |
-
-**Per-ticker conclusion:** LinearRegression is the most reliable model at this data scale.
-
-### Production decision (pooled model)
-
-The production training script (`model/train.py --all`) trains all three models on the pooled dataset and selects the winner by test R². With ~25,000 training samples, the tree models should overcome their data-scarcity disadvantage. The winning model will be determined at training time and logged in the run output.
-
----
-
-## 6. Production Pooled Model Results
-
-The production models (`model_pooled.pkl` and `model_pooled_fallback.pkl`) were trained in `ml_exploration.ipynb` section 8, implementing the same pooled strategy as `python model/train.py --all`. Results below are from stored cell outputs.
+## 6. Production Pooled Model Results (v6 — Balanced Classification)
 
 ### 6.1 Training data summary
 
-| Model | Tickers | Features | Train rows | Test rows | Total rows |
+| Pool | Tickers | Features | Train rows | Test rows | UP days (train) | DOWN days (train) |
+|---|---|---|---|---|---|---|
+| Standard (`model_pooled.pkl`) | 26 (all except BAC/GS/JPM/MA/V) | 16 | 22,982 | 5,759 | 11,937 (51.9%) | 11,045 (48.1%) |
+| Fallback (`model_pooled_fallback.pkl`) | BAC, GS, JPM, MA, V | 11 | 4,852 | 1,214 | 2,517 (51.9%) | 2,335 (48.1%) |
+
+Split method: **per-ticker 80/20 temporal split before pooling**. Zero-return rows dropped. Row counts are identical to v5 — only model configuration changed.
+
+### 6.2 LogisticRegression C cross-validation
+
+C candidates evaluated via `TimeSeriesSplit(n_splits=5)`, optimising mean accuracy across folds.
+
+#### Standard pool — C CV scores
+
+| C | CV mean accuracy |
+|---|---|
+| **0.01** | **0.5125 (selected)** |
+| 0.1 | 0.5120 |
+| 1.0 | 0.5110 |
+| 10.0 | 0.5102 |
+
+> Strong regularisation (C=0.01) selected — consistent with v5. The fundamental feature group contains highly correlated ratios (Gross_Margin, Operating_Margin, Net_Margin all derived from Revenue), making strong L2 penalty optimal.
+
+#### Fallback pool — C CV scores
+
+| C | CV mean accuracy |
+|---|---|
+| 0.01 | 0.4903 |
+| 0.1 | 0.4899 |
+| **1.0** | **0.4948 (selected)** |
+| 10.0 | 0.4911 |
+
+> C=1.0 selected — unchanged from v5. Fallback pool uses only 11 price/vol features with low inter-correlation, so moderate regularisation is sufficient.
+
+### 6.3 Model comparison — Standard pool (26 tickers, 16 features)
+
+| Model | Accuracy (test) | F1 (binary) | Selected |
+|---|---|---|---|
+| **LogisticRegression(C=0.01, balanced)** | **50.1%** | **0.463** | **Winner** |
+| RandomForestClassifier (balanced) | 49.7% | 0.461 | — |
+| GradientBoostingClassifier (balanced weights) | 49.3% | 0.461 | — |
+| LGBMClassifier (is_unbalance=True) | 49.0% | 0.461 | — |
+
+**Winner: LogisticRegression(C=0.01, balanced)** → saved as `model/trained/model_pooled.pkl`
+
+**Classification report (LogisticRegression, n=5,759 test rows):**
+```
+              precision    recall  f1-score   support
+
+    DOWN (0)       0.48      0.61      0.53      2722
+      UP (1)       0.54      0.41      0.46      3037
+
+    accuracy                           0.50      5759
+   macro avg       0.51      0.51      0.50      5759
+weighted avg       0.51      0.50      0.50      5759
+```
+
+### 6.4 Model comparison — Fallback pool (5 tickers, 11 features)
+
+| Model | Accuracy (test) | F1 (binary) | Selected |
+|---|---|---|---|
+| LogisticRegression(C=1.0, balanced) | 52.6% | 0.591 | — |
+| RandomForestClassifier (balanced) | 52.8% | 0.654 | — |
+| **GradientBoostingClassifier (balanced weights)** | **54.9%** | **0.677** | **Winner** |
+| LGBMClassifier (is_unbalance=True) | 52.4% | 0.626 | — |
+
+**Winner: GradientBoostingClassifier** → saved as `model/trained/model_pooled_fallback.pkl`
+
+**Classification report (GradientBoostingClassifier, n=1,214 test rows):**
+```
+              precision    recall  f1-score   support
+
+    DOWN (0)       0.51      0.16      0.25       553
+      UP (1)       0.55      0.87      0.68       661
+
+    accuracy                           0.55      1214
+   macro avg       0.53      0.52      0.46      1214
+weighted avg       0.54      0.55      0.48      1214
+```
+
+### 6.5 Recall comparison: v5 vs v6
+
+| Pool | Metric | v5 (GBC, unbalanced) | v6 (winner, balanced) | Change |
+|---|---|---|---|---|
+| Standard | Accuracy | 51.55% | 50.08% | −1.47pp |
+| Standard | UP recall | 0.66 | 0.41 | −0.25 |
+| Standard | DOWN recall | 0.35 | **0.61** | **+0.26** |
+| Standard | Macro F1 | 0.50 | 0.50 | 0.00 |
+| Fallback | Accuracy | 55.68% | 54.86% | −0.82pp |
+| Fallback | UP recall | 0.93 | 0.87 | −0.06 |
+| Fallback | DOWN recall | 0.11 | 0.16 | +0.05 |
+| Fallback | Macro F1 | 0.44 | 0.46 | +0.02 |
+
+**Key result:** Standard pool DOWN recall nearly doubled (0.35 → 0.61). LogReg now correctly identifies 61% of actual DOWN days, versus 35% for GBC in v5. The standard model now issues a meaningful volume of SELL signals. Macro F1 is unchanged (0.50) — the model trades UP recall for DOWN recall without losing overall macro performance.
+
+**Fallback pool:** GBC remains the winner. The balanced sample weights (passed via `sample_weight=` in `.fit()`) have limited effect on the fallback pool — DOWN recall improved only from 0.11 to 0.16. This is expected for a heavily imbalanced real-world signal (financial stocks trend upward persistently over 2020–2024). The dominant effect in the fallback pool is the structural UP bias in the data itself, which sample weighting partially but not fully corrects.
+
+### 6.6 Signal distribution (v6)
+
+| Signal | Trigger | Expected distribution |
+|---|---|---|
+| **BUY** | predict()==1 AND max(predict_proba) >= 0.51 | Reduced vs v5 — LogReg now predicts UP on only ~41% of standard days |
+| **SELL** | predict()==0 AND max(predict_proba) >= 0.51 | Substantially increased vs v5 — DOWN recall 0.61 generates more SELL signals |
+| **HOLD** | max(predict_proba) < 0.51 (low confidence) | High for standard pool — LogReg's probability range is narrow around 0.5 |
+
+> **Note on the standard pool HOLD rate:** LogisticRegression with C=0.01 (strong L2 regularisation) produces probabilities clustered tightly around 0.5. With a 0.51 confidence gate, a large fraction of standard pool predictions will be converted to HOLD. This is conservative but correct — low-conviction predictions should not generate signals. If fewer signals are desired, lower the gate to 0.50; if higher conviction is required, raise to 0.55.
+
+### 6.7 Hyperparameter configuration (v6 changes highlighted)
+
+#### Standard pool winner — LogisticRegression
+
+| Parameter | Value |
+|---|---|
+| Scaling | StandardScaler (required — Market_Cap ~10¹² vs Log_Return ~0.01) |
+| C | 0.01 (selected by TimeSeriesSplit CV) |
+| solver | lbfgs |
+| max_iter | 1000 |
+| **class_weight** | **'balanced' (v5 and v6)** |
+
+#### Fallback pool winner — GradientBoostingClassifier
+
+| Parameter | Value |
+|---|---|
+| n_estimators | 500 |
+| learning_rate | 0.02 |
+| max_depth | 2 |
+| min_samples_leaf | 20 |
+| min_samples_split | 40 |
+| subsample | 0.7 |
+| max_features | 0.8 |
+| **sample_weight** | **compute_sample_weight('balanced', y_train) passed to .fit() (v6 new)** |
+
+---
+
+## 7. Calibration Analysis — Predicted Probability Deciles
+
+### 7.1 Standard pool — probability calibration (LogisticRegression, 16 features, 26 tickers)
+
+| Decile | N | Mean P(UP) | Actual UP freq | Accuracy |
+|---|---|---|---|---|
+| 1 (lowest P(UP)) | 576 | 0.457 | 0.505 | 0.495 |
+| 2 | 576 | 0.475 | 0.549 | 0.451 |
+| 3 | 576 | 0.483 | 0.491 | 0.509 |
+| 4 | 576 | 0.488 | 0.547 | 0.453 |
+| 5 | 576 | 0.493 | 0.523 | 0.477 |
+| 6 | 575 | 0.498 | 0.518 | 0.482 |
+| 7 | 576 | 0.502 | 0.531 | 0.531 |
+| 8 | 576 | 0.508 | 0.519 | 0.519 |
+| 9 | 576 | 0.515 | 0.564 | 0.564 |
+| 10 (highest P(UP)) | 576 | 0.527 | 0.526 | 0.526 |
+
+**Calibration summary — Standard pool:** The model is poorly calibrated in terms of probability spread. LogReg with strong L2 regularisation (C=0.01) compresses all probabilities into a narrow band (0.457–0.527). Actual UP frequency shows no monotonic trend across deciles. Deciles 9–10 (mean P(UP) 0.515–0.527) have the highest actual UP rate (56.4%, 52.6%), providing weak but real signal for BUY. However, since most predictions fall below the 0.51 confidence gate, the standard model will generate a large share of HOLD signals in practice.
+
+### 7.2 Fallback pool — probability calibration (GBC, balanced weights, 11 features, 5 tickers)
+
+| Decile | N | Mean P(UP) | Actual UP freq | Accuracy |
+|---|---|---|---|---|
+| 1 (lowest P(UP)) | 122 | 0.444 | 0.467 | 0.533 |
+| 2 | 121 | 0.500 | 0.521 | 0.479 |
+| 3 | 121 | 0.528 | 0.603 | 0.603 |
+| 4 | 122 | 0.558 | 0.590 | 0.590 |
+| 5 | 121 | 0.588 | 0.537 | 0.537 |
+| 6 | 121 | 0.609 | 0.554 | 0.554 |
+| 7 | 122 | 0.625 | 0.525 | 0.525 |
+| 8 | 121 | 0.642 | 0.579 | 0.579 |
+| 9 | 121 | 0.662 | 0.562 | 0.562 |
+| 10 (highest P(UP)) | 122 | 0.698 | 0.508 | 0.508 |
+
+**Calibration summary — Fallback pool:** Mixed calibration — similar pattern to v5. Decile 1 now shows 53.3% accuracy on DOWN direction (P(UP)=0.444, actual UP freq=0.467), a slight improvement vs v5 decile 1 (57.4% accuracy, different mechanism). Deciles 3–4 remain the most informative BUY region (60.3%, 59.0% UP freq). The upper deciles (5–10) are noisy. The balanced weights shifted some probability mass from high deciles toward lower deciles, slightly improving the low-P(UP) region's DOWN signal.
+
+### 7.3 Calibration summary
+
+| Pool | Model | Best region | Best decile accuracy | Worst decile accuracy | Actionable? |
 |---|---|---|---|---|---|
-| `model_pooled.pkl` (standard) | 25 tickers (all except BAC/GS/JPM/MA/V) | 16 (price + vol-norm + fundamentals) | 22,148 | 5,548 | 27,696 |
-| `model_pooled_fallback.pkl` (fallback) | BAC, GS, JPM, MA, V | 11 (price + vol-norm only) | 4,860 | 1,215 | 6,075 |
-
-Split method: **per-ticker 80/20 temporal split applied before pooling** — each ticker's final 20% of usable rows (after NaN removal) is reserved for the test set, preventing any single ticker from dominating the held-out evaluation.
-
-### 6.2 Model comparison — Standard pool (25 tickers, 16 features)
-
-| Model | R² (test set) | MAE (test set) | Selected |
-|---|---|---|---|
-| LinearRegression (+ StandardScaler) | **−0.0026** | **0.01530** | ✅ Winner |
-| RandomForestRegressor (200 trees) | −0.0814 | 0.01596 | — |
-| GradientBoostingRegressor (200 estimators) | −0.1623 | 0.01623 | — |
-
-**Winner: LinearRegression** → saved as `model/trained/model_pooled.pkl`
-
-### 6.3 Model comparison — Fallback pool (5 tickers, 11 features)
-
-| Model | R² (test set) | MAE (test set) | Selected |
-|---|---|---|---|
-| LinearRegression (+ StandardScaler) | **−0.0025** | **0.00996** | ✅ Winner |
-| RandomForestRegressor (200 trees) | −0.0669 | 0.01044 | — |
-| GradientBoostingRegressor (200 estimators) | −0.0776 | 0.01046 | — |
-
-**Winner: LinearRegression** → saved as `model/trained/model_pooled_fallback.pkl`
-
-### 6.4 Pooled vs. per-ticker: R² comparison
-
-| Context | LR mean R² | Training rows | Notes |
-|---|---|---|---|
-| Per-ticker prototype (sections 5–6) | −0.67 | ~900 per model | 25 separate models |
-| **Pooled standard (production)** | **−0.0026** | **27,696** | Single shared model |
-| **Pooled fallback (production)** | **−0.0025** | **6,075** | Single shared model |
-
-The pooled LR achieves R²=−0.003 versus a per-ticker mean of −0.67 — roughly **250× better**. This validates the core hypothesis from Section 4.3: data scarcity was the primary driver of per-ticker R² degradation, not model misspecification.
-
-### 6.5 Key observations
-
-**1. LinearRegression wins in both pools — including at 22,000+ training samples.**
-Section 4.3 predicted that tree ensembles would close the gap with more data. They did not — LR still wins. Two likely explanations: (a) the feature-target relationship is genuinely near-linear in this domain; (b) the volatility-normalised features (`Return_norm`, `Return_norm_Lag1`, `Return_norm_Lag2`) are already doing the non-linear normalisation work, leaving little for tree models to discover.
-
-**2. MAE is consistent and interpretable.**
-Standard pool MAE = 0.01530 means the model's average absolute prediction error is ~1.53% per day. Fallback pool MAE = 0.00996 (~1.0%) reflects the inherently lower daily volatility of financial stocks (BAC, GS, JPM, MA, V) versus the mixed-sector standard pool (which includes TSLA, NVDA, PLTR).
-
-**3. All R² values remain negative even at pooled scale.**
-R²=−0.003 is far better than per-ticker, but still negative — the model is still slightly worse than the constant-mean predictor on the test set. This is consistent with EMH in liquid, large-cap US equities. Direction accuracy on the pooled test set was not separately logged, but per-ticker Section 3 results (~49–50%) are the best available proxy.
-
-**4. Production models are refitted on the full dataset before saving.**
-After evaluating candidates on the held-out test set, the winning model is retrained on all data (train + test combined). The `.pkl` files therefore contain models trained on all 27,696 rows (standard) and 6,075 rows (fallback), giving them the best possible parameter estimates for live inference.
-
-**5. GradientBoosting consistently underperforms at both scales.**
-GBR is worst at per-ticker scale (mean R²=−1.63, catastrophic KO R²=−13.28) and worst at pooled scale (standard R²=−0.16). Even with ~22,000 training rows, GBR overfits relative to LR. This may reflect that the signal in daily returns is too sparse and diffuse for gradient-boosted trees to learn reliably without regularisation (e.g., max_depth, subsample, min_samples_leaf tuning).
-
-### 6.6 Hyperparameter configuration
-
-The same model configurations are used across **both pools** (standard and fallback) — the only difference between pools is the feature set (16 vs 11 features) and the tickers included.
-
-#### LinearRegression (Winner — both pools)
-
-| Parameter | Value | Notes |
-|---|---|---|
-| Preprocessing | `StandardScaler` | Required: Market_Cap (~10¹²) vs Log_Return (~0.01) without scaling distorts OLS coefficients |
-| StandardScaler — with_mean | `True` (default) | Subtracts feature mean |
-| StandardScaler — with_std | `True` (default) | Divides by feature std |
-| fit_intercept | `True` (default) | Intercept term included |
-| Regularisation | None | Plain OLS — no L1/L2 penalty |
-| n_jobs | `None` (default) | Single-threaded |
-
-> **Note:** The absence of regularisation is a known limitation — see Section 8 recommendations. Ridge regression (L2) would add a penalty term `α‖w‖²` and is a recommended next step.
-
-#### RandomForestRegressor
-
-| Parameter | Value | Notes |
-|---|---|---|
-| n_estimators | **200** | Number of trees in the forest (explicit) |
-| random_state | **42** | Reproducibility seed (explicit) |
-| n_jobs | **−1** | Uses all available CPU cores (explicit) |
-| max_depth | `None` (default) | Trees grown until all leaves are pure or contain < min_samples_split samples — primary overfitting risk |
-| min_samples_split | `2` (default) | Minimum samples required to split an internal node |
-| min_samples_leaf | `1` (default) | Minimum samples in each leaf — low value amplifies overfitting on small per-ticker datasets |
-| max_features | `1.0` (default, sklearn≥1.1) | All features considered at each split (changed from `'auto'` in older versions) |
-| bootstrap | `True` (default) | Bagging with replacement |
-| Preprocessing | None | Scale-invariant; no scaler applied |
-
-#### GradientBoostingRegressor
-
-| Parameter | Value | Notes |
-|---|---|---|
-| n_estimators | **200** | Number of boosting stages (explicit) |
-| random_state | **42** | Reproducibility seed (explicit) |
-| learning_rate | `0.1` (default) | Shrinkage factor applied to each tree's contribution |
-| max_depth | `3` (default) | Maximum depth per tree — shallow by design, but 200 stages × depth-3 trees is still high capacity |
-| min_samples_split | `2` (default) | Minimum samples to split |
-| min_samples_leaf | `1` (default) | Minimum samples per leaf |
-| subsample | `1.0` (default) | Fraction of samples used per stage; setting <1.0 would add stochastic regularisation |
-| max_features | `None` (default) | All features considered at each split |
-| loss | `'squared_error'` (default, sklearn≥1.0) | Standard MSE loss for regression |
-| Preprocessing | None | Scale-invariant; no scaler applied |
-
-#### Summary: explicitly set vs. default parameters
-
-| Parameter | LR | RF | GBR |
-|---|---|---|---|
-| **Explicitly set** | _(none beyond scaler)_ | n_estimators=200, random_state=42, n_jobs=−1 | n_estimators=200, random_state=42 |
-| **Key defaults left unchanged** | fit_intercept=True, no regularisation | max_depth=None, min_samples_leaf=1, max_features=1.0 | learning_rate=0.1, max_depth=3, subsample=1.0 |
-| **Known overfitting risk** | Low (few parameters) | High: max_depth=None on small datasets | Medium: subsample=1.0, large n_estimators |
+| Standard | LogReg (C=0.01, balanced) | Decile 9 | 56.4% | 45.1% (decile 2) | Weak — narrow prob. range, most predictions below 0.51 gate |
+| Fallback | GBC (balanced) | Decile 3 | 60.3% | 47.9% (decile 2) | Yes — deciles 1 and 3–4 carry directional signal |
 
 ---
 
-## 7. Context: Per-Ticker vs. Pooled Architecture
+## 8. Version Comparison: v1 through v6
 
-| | Per-ticker prototype (sections 2–3) | Production pooled model (section 6) |
-|---|---|---|
-| Training data per model | ~750–960 rows per ticker | 27,696 rows (standard) / 6,075 rows (fallback) |
-| Number of models | One per ticker (25 standard + 5 fallback = 30) | One per feature schema (2 total) |
-| Purpose | Prototype — explore model families, detect outliers | Production — loaded by Streamlit app for inference |
-| Where trained | `ml_exploration.ipynb` sections 5–6 | `ml_exploration.ipynb` section 8 / `python model/train.py --all` |
-| LR R² (actual) | Mean −0.67 (range: +0.012 to −6.13) | **−0.0026** (standard) / **−0.0025** (fallback) |
-| Winner model family | LinearRegression (13/25 tickers best R²) | LinearRegression (both pools) |
-| Status | Reference only — not deployed | **Active** — `.pkl` files loaded by `go_live.py` and `backtesting.py` |
+| | Per-ticker prototype | Prod. v1 | Prod. v2 | Prod. v3 | Prod. v4 | Prod. v5 | **Prod. v6** |
+|---|---|---|---|---|---|---|---|
+| Problem type | Regression | Regression | Regression | Regression | Classification | Classification | **Classification** |
+| Standard tickers | 25 | 25 | 25 | 25 | 25 | 26 | **26** |
+| Standard features | 16 | 11 | 11 | 11 | 11 | 16 | **16** |
+| Fallback features | 11 | 11 | 11 | 11 | 11 | 11 | **11** |
+| Class balancing | — | — | — | — | LR only | LR only | **All classifiers** |
+| Standard winner | LR (13/25) | LinearRegression | Ridge α=10 | Same as v2 | RFC | GBC | **LogReg (C=0.01)** |
+| Standard accuracy | ~49–50% | Not logged | 50.67% | 50.67% | 50.65% | 51.55% | **50.08%** |
+| Standard DOWN recall | — | — | — | — | — | 0.35 | **0.61** |
+| Fallback winner | — | — | — | — | GBC | GBC | **GBC** |
+| Fallback accuracy | — | — | — | — | 54.04% | 55.68% | **54.86%** |
+| Fallback DOWN recall | — | — | — | — | — | 0.11 | **0.16** |
+| Standard F1 (macro) | — | — | — | — | ~0.50 | 0.50 | **0.50** |
+| Fallback F1 (macro) | — | — | — | — | ~0.44 | 0.44 | **0.46** |
+
+> **Note:** Macro F1 is the fair cross-version comparison metric. Accuracy is misleading here because an UP-biased model (v5 GBC, UP recall=0.66) scores higher accuracy than a balanced model (v6 LogReg, UP recall=0.41) on a test set that is 52.7% UP — the accuracy gap reflects bias removal, not skill loss.
 
 ---
 
-## 8. Known Limitations & Recommended Next Steps
+## 9. Key Findings
 
-### Limitations
+### Finding 1 — LogReg wins the standard pool when all classifiers are balanced
+
+With balanced class weights applied to all four classifiers, tree ensembles can no longer exploit the UP frequency shortcut (predicting UP on most days to accumulate recall). All tree models (49.0–49.7%) fall below LogReg (50.1%). This confirms the initial hypothesis: the signal-to-noise ratio in daily returns is too low for GBC/RF to exploit genuine non-linear patterns — their v5 edge came entirely from the unbalanced training signal, not from non-linear feature interactions.
+
+LogReg's L2-regularised linear decision boundary is more robust in this regime. With C=0.01 (strong regularisation), it avoids overfitting on the 16-feature space that includes highly correlated fundamental ratios.
+
+### Finding 2 — Standard pool DOWN recall nearly doubled: 0.35 → 0.61
+
+The most significant improvement in v6 is the standard pool's DOWN recall. With balanced training, LogReg correctly identifies 61% of actual DOWN days, versus 35% for GBC in v5. This means the standard model now issues a meaningful volume of SELL signals instead of being almost exclusively a BUY signal generator.
+
+The tradeoff: UP recall dropped from 0.66 to 0.41. The model is now balanced in its errors — macro F1 is unchanged at 0.50. Overall accuracy dropped by 1.47pp (51.55% → 50.08%) because the model no longer exploits the ~52% UP base rate.
+
+### Finding 3 — Fallback pool is more resilient to balancing, but GBC still shows UP bias
+
+GBC remains the fallback winner (54.86%) despite balanced weights. DOWN recall improved only from 0.11 to 0.16 — a modest gain. The structural UP trend in financial stocks over 2020–2024 is strong enough that even with balanced sample weights, the boosted tree model learns to predict UP on ~87% of days. The `sample_weight` mechanism penalises DOWN errors more, but with 5 tickers and a ~52%/48% split, the absolute number of DOWN training samples (2,335 rows) is still sufficient for GBC to find UP patterns.
+
+### Finding 4 — Standard pool calibration is extremely narrow under LogReg with C=0.01
+
+With C=0.01, LogReg compresses all probabilities into the range 0.457–0.527. This means the 0.51 confidence gate will classify a large fraction of predictions as HOLD — only predictions above decile 8 (mean P(UP) > 0.508) exceed the gate. This is conservative but defensively correct. The gate was lowered from 0.52 to 0.51 on 2026-03-20 to reduce the HOLD rate. If fewer HOLD signals are still desired, consider lowering to 0.50 or using a less aggressive C (e.g., C=0.1 would widen the probability spread).
+
+### Finding 5 — Macro F1 is the honest metric; accuracy is misleading
+
+Both v5 and v6 achieve macro F1 = 0.50 on the standard pool. Accuracy changed (51.55% → 50.08%) because accuracy rewards the UP-biased model: predicting UP 66% of the time yields 51.55% accuracy on a 52.7% UP test set. Macro F1 treats both classes equally and reveals that v5's accuracy advantage was entirely due to the UP bias, not genuine directional skill. In v6, both models have the same macro F1, confirming the comparison is now on equal terms.
+
+---
+
+## 10. Known Limitations and Recommended Next Steps
+
+### Remaining limitations
 
 | Limitation | Severity | Description |
 |---|---|---|
-| No walk-forward validation | High | A single 80/20 split cannot detect regime changes. Rolling validation (train on year N, test on year N+1) would give a more reliable estimate of out-of-sample performance |
-| Fundamental data lag | Medium | Quarterly fundamentals are merged at Publish Date, but actual investor awareness often lags further. Point-in-time accuracy is approximate |
-| No transaction costs | Medium | Direction accuracy assumes frictionless trading. With bid-ask spreads and slippage, the true edge is lower |
-| No position sizing | Low | The current signal is binary (BUY/SELL/HOLD). A confidence-weighted position size (larger bet when model is more certain) could improve risk-adjusted returns |
-| BAC, GS, JPM, MA, V excluded | Informational | These 5 tickers are handled by a separate fallback model (11 features, no fundamentals) — not evaluated in this report |
+| No walk-forward validation | High | Single 80/20 split; rolling validation would give a more honest estimate across market regimes |
+| Standard pool HOLD rate is high | Medium | LogReg C=0.01 produces very narrow probabilities (0.457–0.527); most predictions fall below the 0.51 gate → fewer actionable signals |
+| Fallback DOWN recall still low | Medium | GBC fallback DOWN recall = 0.16; balanced weights partially but not fully correct the structural UP trend in financial stocks |
+| Confidence threshold not tuned | Medium | 0.51 is the current threshold (lowered from 0.52 on 2026-03-20 to reduce HOLD rate); not optimised against a Sharpe or win-rate objective |
+| Fundamental data is static | Low | Live inference uses last-known quarterly values from processed CSV. Will lag if a company reports between CSV regenerations |
+| No transaction costs | Medium | Accuracy assumes frictionless trading |
 
-### Recommended next steps for the production model
+### Recommended next steps
 
-1. **Walk-forward cross-validation** — 3-fold temporal CV (train 2020–2021 → test 2022; train 2020–2022 → test 2023; train 2020–2023 → test 2024) would give a more honest performance estimate than a single 80/20 split.
-2. **Direction accuracy on pooled test set** — log `sign(predicted) == sign(actual)` during `model/train.py` runs; this is the most operationally relevant metric and is currently only measured per-ticker in the prototype notebook.
-3. **Regularisation for LinearRegression** — consider Ridge (L2) or Lasso (L1) regression; the current OLS estimator has no regularisation. With 11–16 features and 6,000–27,000 rows the ratio is manageable, but Ridge would reduce variance and might improve the fallback model.
-4. **GBR hyperparameter tuning** — GBR underperforms at all scales tested. Reducing `max_depth` (default=3→2), adding `subsample<1.0`, and increasing `min_samples_leaf` would add regularisation and may close the gap with LR. Currently using default hyperparameters only.
-5. **Calibration check** — plot the distribution of model predictions vs. actual returns on the test set. A well-calibrated regression model should produce predicted returns that, when positive, correlate with actual positive returns at a rate materially above 50%.
-6. **Feature importance analysis** — extract LR coefficients (standardised, post-scaling) on the pooled model to identify which of the 16 features drive predictions. This is meaningful at pooled scale with 27,000 rows; per-ticker feature importances (section 7 of the notebook) are noisy due to data scarcity.
+1. **Tune the confidence threshold for LogReg** — grid search over [0.50, 0.51, 0.52, 0.53] (current: 0.51) on the standard pool. With C=0.01, probabilities are narrow; gate lowered to 0.51 on 2026-03-20; further lowering to 0.50 would produce maximum signals while still requiring some directional conviction.
+
+2. **Experiment with C=0.1 for the standard pool** — slightly weaker L2 regularisation would widen the probability spread (more predictions above 0.52), at the cost of slightly higher collinearity risk from the fundamental feature group.
+
+3. **Implement walk-forward cross-validation** — 3-fold: train 2020–2021 → test 2022; train 2020–2022 → test 2023; train 2020–2023 → test 2024. This would reveal whether v6 LogReg's standard pool accuracy (50.08%) is stable across market regimes or volatile.
+
+4. **Explore class-balanced XGBoost** — `scale_pos_weight = n_negative / n_positive` is XGBoost's equivalent of `is_unbalance`. XGBoost's column-sampling and regularisation may outperform LightGBM on this dataset.
+
+5. **Refresh processed CSVs periodically** — run `python etl/etl.py --all` to update fundamental values and extend price history. Retrain with `python model/train.py --all` to incorporate new data.
 
 ---
 
-*Report generated from `notebooks/ml_exploration.ipynb` (sections 5–6 per-ticker outputs; section 8 pooled model outputs). Both production models are trained and deployed: `model/trained/model_pooled.pkl` and `model/trained/model_pooled_fallback.pkl`.*
+## 11. Historical Record
+
+This is the final production report (v6). Prior version notes:
+- **v5** — GBC unbalanced winner (standard pool); 16-feature schema introduced; fundamentals activated.
+- **v4** — Classification introduced; prior versions (v1–v3) used regression.
+- **v1–v3** — Regression prototypes using 11 features.
+
+---
+
+*Report v6 generated from `python model/train.py --all` (March 2026, v6 balanced class weights).
+Standard pool: LogisticRegression(C=0.01, balanced), accuracy=50.08%, macro F1=0.50, DOWN recall=0.61, 26 tickers, 16 features.
+Fallback pool: GradientBoostingClassifier (balanced sample weights), accuracy=54.86%, macro F1=0.46, DOWN recall=0.16, 5 tickers, 11 features.
+Models: `model/trained/model_pooled.pkl` (LogReg) and `model/trained/model_pooled_fallback.pkl` (GBC).*

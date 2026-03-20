@@ -139,13 +139,13 @@ def run_backtest(df: pd.DataFrame, model, feature_cols: list[str]) -> tuple[pd.D
         pred_classes = model.predict(X)
         df["Predicted"] = pred_classes.astype(int)
 
-        # Apply confidence threshold: rows where max(predict_proba) < 0.52
+        # Apply confidence threshold: rows where max(predict_proba) < 0.51
         # are treated as HOLD (no position) — mapped to 0 in the simulation.
         if hasattr(model, "predict_proba"):
             try:
                 probas = model.predict_proba(X)
                 confidence = probas.max(axis=1)
-                df.loc[confidence < 0.52, "Predicted"] = 0
+                df.loc[confidence < 0.51, "Predicted"] = 0
             except Exception:
                 pass
 
