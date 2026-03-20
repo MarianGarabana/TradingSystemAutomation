@@ -104,7 +104,7 @@ with left:
             "Select a ticker and get **today's ML-generated signal** "
             "— Buy, Sell, or Hold — powered by live SimFin API data."
         )
-        st.markdown("- Real-time price data via SimFin API")
+        st.markdown("- Real-time price data obtained from SimFin API")
         st.markdown("- BUY / SELL / HOLD with confidence score")
         st.markdown("- RSI, MACD, Bollinger Bands charts")
         st.page_link("pages/1_go_live.py", label="Open Go Live →", icon="🚀")
