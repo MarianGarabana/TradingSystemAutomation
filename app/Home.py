@@ -101,11 +101,11 @@ with left:
     with st.container(border=True):
         st.markdown("### 🚀 Go Live")
         st.markdown(
-            "Select a stock ticker and get **today's ML-generated trading signal** "
-            "(Buy, Sell, or Hold), powered by fresh data from the SimFin API."
+            "Select a ticker and get **today's ML-generated signal** "
+            "— Buy, Sell, or Hold — powered by live SimFin API data."
         )
-        st.markdown("- Live price data via SimFin API")
-        st.markdown("- BUY / SELL / HOLD signal with confidence score")
+        st.markdown("- Real-time price data via SimFin API")
+        st.markdown("- BUY / SELL / HOLD with confidence score")
         st.markdown("- RSI, MACD, Bollinger Bands charts")
         st.page_link("pages/1_go_live.py", label="Open Go Live →", icon="🚀")
 
@@ -113,27 +113,24 @@ with mid:
     with st.container(border=True):
         st.markdown("### 🎯 Prediction Bet")
         st.markdown(
-            "Pick a stock, set your **direction, stake and leverage**, "
-            "then see what the model predicted — and what actually happened."
+            "Choose a stock, set your **bet direction and leverage**, "
+            "then compare the model's call with what actually happened."
         )
-        st.markdown("- UP / DOWN bet with 1x – 10x leverage")
-        st.markdown("- AI signal vs. your direction comparison")
-        st.markdown("- Entry/exit price chart + top signal drivers")
-        st.markdown("&nbsp;")
+        st.markdown("- UP / DOWN direction with 1× – 10× leverage")
+        st.markdown("- Your bet vs. AI signal side-by-side")
+        st.markdown("- Entry / exit chart + top feature drivers")
         st.page_link("pages/2_prediction_bet.py", label="Open Prediction Bet →", icon="🎯")
 
 with right:
     with st.container(border=True):
         st.markdown("### 🔍 Backtesting")
         st.markdown(
-            "Evaluate the model's **historical performance** — "
-            "how accurately did it predict past market movements?"
+            "Explore the model's **full historical track record** "
+            "— returns, rolling accuracy, and every past signal in one view."
         )
-        st.markdown("- Strategy return vs. buy-and-hold")
-        st.markdown("- Rolling 30-day accuracy over time")
-        st.markdown("- Full signal history table")
-        st.markdown("&nbsp;")
-        st.markdown("&nbsp;")
+        st.markdown("- Strategy return vs. buy-and-hold baseline")
+        st.markdown("- Rolling 30-day prediction accuracy chart")
+        st.markdown("- Complete signal history with dates & labels")
         st.page_link("pages/3_backtesting.py", label="Open Backtesting →", icon="🔍")
 
 st.divider()
