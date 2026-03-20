@@ -98,20 +98,14 @@ st.divider()
 st.markdown(
     """
     <style>
-    div[data-testid="stHorizontalBlock"] {
-        align-items: stretch;
-    }
-    div[data-testid="stColumn"] > div:first-child {
-        height: 100%;
-    }
     div[data-testid="stVerticalBlockBorderWrapper"] {
-        height: 100%;
+        min-height: 420px;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
-left, mid, right = st.columns(3, gap="large")
+left, mid, right = st.columns(3, gap="medium")
 
 with left:
     with st.container(border=True):
