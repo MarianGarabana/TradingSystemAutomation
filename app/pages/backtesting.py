@@ -228,6 +228,47 @@ def plot_cumulative_return(
     return fig
 
 
+def plot_signal_accuracy(
+    df: pd.DataFrame,
+    window: int = 30,
+    oos_start_date: date | None = None,
+) -> plt.Figure:
+    """Rolling accuracy split by signal type: BUY vs SELL predictions.
+
+    BUY accuracy  = % of days where model predicted BUY and the price actually rose.
+    SELL accuracy = % of days where model predicted SELL and the price actually fell.
+    50% reference line separates better-than-random from worse-than-random.
+    """
+    buy_correct  = np.where(df["Predicted"] == 1, df["Correct"], np.nan)
+    sell_correct = np.where(df["Predicted"] == 0, df["Correct"], np.nan)
+
+    buy_acc  = pd.Series(buy_correct,  index=df.index).rolling(window, min_periods=5).mean() * 100
+    sell_acc = pd.Series(sell_correct, index=df.index).rolling(window, min_periods=5).mean() * 100
+
+    fig, ax = plt.subplots(figsize=(10, 3))
+    fig.patch.set_facecolor("#0d0d0d")
+    ax.set_facecolor("#0d0d0d")
+
+    ax.plot(df["Date"], buy_acc,  color="#00c805", linewidth=1.4, label="BUY accuracy")
+    ax.plot(df["Date"], sell_acc, color="#ff4b4b", linewidth=1.4, label="SELL accuracy")
+    ax.axhline(50, color="#555555", linewidth=0.8, linestyle="--")
+
+    ax.set_title(f"Rolling {window}-Day Accuracy by Signal Type (%)", color="#f0f0f0", fontsize=12)
+    ax.set_ylabel("Accuracy (%)", color="#f0f0f0")
+    ax.set_ylim(0, 100)
+    ax.tick_params(colors="#f0f0f0")
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+    for spine in ax.spines.values():
+        spine.set_edgecolor("#333333")
+    ax.legend(facecolor="#1a1a1a", labelcolor="#f0f0f0")
+
+    if oos_start_date is not None:
+        _draw_oos_line(ax, oos_start_date, df)
+
+    fig.tight_layout()
+    return fig
+
+
 def plot_rolling_accuracy(
     df: pd.DataFrame,
     window: int = 30,
@@ -383,6 +424,18 @@ st.caption(
     "A declining trend may indicate the model is drifting with changing market conditions."
 )
 st.pyplot(plot_rolling_accuracy(result_df, oos_start_date=oos_start_date))
+
+st.divider()
+
+# ── Signal accuracy by type chart ─────────────────────────────────────────────
+st.subheader("Signal Accuracy by Type")
+st.caption(
+    "Rolling 30-day accuracy split by prediction type. "
+    "BUY accuracy shows how often BUY predictions were correct; "
+    "SELL accuracy shows the same for SELL predictions. "
+    "Lines below 50% indicate that signal type is performing worse than random."
+)
+st.pyplot(plot_signal_accuracy(result_df, oos_start_date=oos_start_date))
 
 st.divider()
 
