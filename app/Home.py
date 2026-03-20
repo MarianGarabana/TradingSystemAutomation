@@ -88,13 +88,13 @@ st.markdown(
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Supported tickers", len(ticker_df))
 col2.metric("Data range", "2020 – 2024")
-col3.metric("Model type", "Logistic Reg. / GBC")
+col3.metric("Model type", "LogReg + GBC")
 col4.metric("Data source", "SimFin")
 
 st.divider()
 
 # ── Feature cards ──────────────────────────────────────────────────────────────
-left, right = st.columns(2, gap="large")
+left, mid, right = st.columns(3, gap="large")
 
 with left:
     with st.container(border=True):
@@ -106,7 +106,19 @@ with left:
         st.markdown("- Live price data via SimFin API")
         st.markdown("- BUY / SELL / HOLD signal with confidence score")
         st.markdown("- RSI, MACD, Bollinger Bands charts")
-        st.page_link("pages/go_live.py", label="Open Go Live →", icon="🚀")
+        st.page_link("pages/1_go_live.py", label="Open Go Live →", icon="🚀")
+
+with mid:
+    with st.container(border=True):
+        st.markdown("### 🎯 Prediction Bet")
+        st.markdown(
+            "Pick a stock, set your **direction, stake and leverage**, "
+            "then see what the model predicted — and what actually happened."
+        )
+        st.markdown("- UP / DOWN bet with 1x – 10x leverage")
+        st.markdown("- AI signal vs. your direction comparison")
+        st.markdown("- Entry/exit price chart + top signal drivers")
+        st.page_link("pages/2_prediction_bet.py", label="Open Prediction Bet →", icon="🎯")
 
 with right:
     with st.container(border=True):
@@ -118,14 +130,14 @@ with right:
         st.markdown("- Strategy return vs. buy-and-hold")
         st.markdown("- Rolling 30-day accuracy over time")
         st.markdown("- Full signal history table")
-        st.page_link("pages/backtesting.py", label="Open Backtesting →", icon="🔍")
+        st.page_link("pages/3_backtesting.py", label="Open Backtesting →", icon="🔍")
 
 st.divider()
 
 # ── How it works ───────────────────────────────────────────────────────────────
 st.subheader("How it works")
 
-tab1, tab2, tab3 = st.tabs(["📥 Data & ETL", "🤖 ML model", "🌐 Live predictions"])
+tab1, tab2, tab3 = st.tabs(["📥 Data & ETL", "🧠 ML model", "🌐 Live predictions"])
 
 with tab1:
     st.markdown(
@@ -177,21 +189,41 @@ st.divider()
 # ── The team ───────────────────────────────────────────────────────────────────
 st.subheader("The team")
 
-t1, t2 = st.columns(2, gap="large")
+st.markdown(
+    """
+    <div style="display:flex;justify-content:center;align-items:center;
+                flex-wrap:wrap;gap:0;padding:12px 0;">
+        <span style="font-size:15px;color:#f0f0f0;">Omar Ajlouni</span>
+        <span style="color:#444;padding:0 16px;font-size:18px;">·</span>
+        <span style="font-size:15px;color:#f0f0f0;">Marian Garabana</span>
+        <span style="color:#444;padding:0 16px;font-size:18px;">·</span>
+        <span style="font-size:15px;color:#f0f0f0;">Marco Ortiz</span>
+        <span style="color:#444;padding:0 16px;font-size:18px;">·</span>
+        <span style="font-size:15px;color:#f0f0f0;">Lorenz Rösgen</span>
+        <span style="color:#444;padding:0 16px;font-size:18px;">·</span>
+        <span style="font-size:15px;color:#f0f0f0;">Jorge Vildoso</span>
+        <span style="color:#444;padding:0 16px;font-size:18px;">·</span>
+        <span style="font-size:15px;color:#f0f0f0;">Yaxin Wu</span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-with t1:
-    with st.container(border=True):
-        st.markdown("**Marian Garabana**")
-        st.caption(
-            "ETL pipeline · SimFin API wrapper · Streamlit web app · Cloud deployment"
-        )
-
-with t2:
-    with st.container(border=True):
-        st.markdown("**Jorge Vildoso**")
-        st.caption(
-            "Feature engineering · ML model training · Model evaluation · Trading strategy"
-        )
+# t1, t2 = st.columns(2, gap="large")
+#
+# with t1:
+#     with st.container(border=True):
+#         st.markdown("**Marian Garabana**")
+#         st.caption(
+#             "ETL pipeline · SimFin API wrapper · Streamlit web app · Cloud deployment"
+#         )
+#
+# with t2:
+#     with st.container(border=True):
+#         st.markdown("**Jorge Vildoso**")
+#         st.caption(
+#             "Feature engineering · ML model training · Model evaluation · Trading strategy"
+#         )
 
 st.divider()
 
