@@ -12,7 +12,7 @@
   - `LGBMClassifier`: `is_unbalance=True` added
 - **Standard pool winner changed** — GradientBoostingClassifier (v5) replaced by LogisticRegression(C=0.01, balanced) (v6). With balanced weights, tree ensembles can no longer exploit the UP frequency shortcut; LogReg's L2-regularised linear boundary becomes the strongest model on the standard pool.
 - **Standard pool accuracy** — 51.55% (v5 GBC) → 50.08% (v6 LogReg). Small drop expected: the model no longer predicts UP on 66% of days.
-- **Fallback pool winner unchanged** — GradientBoostingClassifier remains the winner (54.86% vs 55.68% in v5). Small accuracy drop due to balanced weights.
+- **Fallback pool winner unchanged** — GradientBoostingClassifier remains the winner (54.70% vs 55.68% in v5). Small accuracy drop due to balanced weights.
 - **DOWN recall substantially improved in standard pool** — 0.35 → 0.61 (LogReg now issues meaningful SELL signals). Fallback pool DOWN recall: 0.11 → 0.16 (modest improvement).
 
 **Source:** `python model/train.py --all`
@@ -126,7 +126,7 @@ C candidates evaluated via `TimeSeriesSplit(n_splits=5)`, optimising mean accura
 | Model | Accuracy (test) | F1 (binary) | Selected |
 |---|---|---|---|
 | **LogisticRegression(C=0.01, balanced)** | **50.1%** | **0.463** | **Winner** |
-| RandomForestClassifier (balanced) | 49.7% | 0.461 | — |
+| RandomForestClassifier (balanced) | 49.8% | 0.461 | — |
 | GradientBoostingClassifier (balanced weights) | 49.3% | 0.461 | — |
 | LGBMClassifier (is_unbalance=True) | 49.0% | 0.461 | — |
 
@@ -149,8 +149,8 @@ weighted avg       0.51      0.50      0.50      5759
 | Model | Accuracy (test) | F1 (binary) | Selected |
 |---|---|---|---|
 | LogisticRegression(C=1.0, balanced) | 52.6% | 0.591 | — |
-| RandomForestClassifier (balanced) | 52.8% | 0.654 | — |
-| **GradientBoostingClassifier (balanced weights)** | **54.9%** | **0.677** | **Winner** |
+| RandomForestClassifier (balanced) | 52.7% | 0.653 | — |
+| **GradientBoostingClassifier (balanced weights)** | **54.7%** | **0.676** | **Winner** |
 | LGBMClassifier (is_unbalance=True) | 52.4% | 0.626 | — |
 
 **Winner: GradientBoostingClassifier** → saved as `model/trained/model_pooled_fallback.pkl`
@@ -175,7 +175,7 @@ weighted avg       0.54      0.55      0.48      1214
 | Standard | UP recall | 0.66 | 0.41 | −0.25 |
 | Standard | DOWN recall | 0.35 | **0.61** | **+0.26** |
 | Standard | Macro F1 | 0.50 | 0.50 | 0.00 |
-| Fallback | Accuracy | 55.68% | 54.86% | −0.82pp |
+| Fallback | Accuracy | 55.68% | 54.70% | −0.98pp |
 | Fallback | UP recall | 0.93 | 0.87 | −0.06 |
 | Fallback | DOWN recall | 0.11 | 0.16 | +0.05 |
 | Fallback | Macro F1 | 0.44 | 0.46 | +0.02 |
@@ -279,7 +279,7 @@ weighted avg       0.54      0.55      0.48      1214
 | Standard accuracy | ~49–50% | Not logged | 50.67% | 50.67% | 50.65% | 51.55% | **50.08%** |
 | Standard DOWN recall | — | — | — | — | — | 0.35 | **0.61** |
 | Fallback winner | — | — | — | — | GBC | GBC | **GBC** |
-| Fallback accuracy | — | — | — | — | 54.04% | 55.68% | **54.86%** |
+| Fallback accuracy | — | — | — | — | 54.04% | 55.68% | **54.70%** |
 | Fallback DOWN recall | — | — | — | — | — | 0.11 | **0.16** |
 | Standard F1 (macro) | — | — | — | — | ~0.50 | 0.50 | **0.50** |
 | Fallback F1 (macro) | — | — | — | — | ~0.44 | 0.44 | **0.46** |
@@ -357,5 +357,5 @@ See `docs/ml_evaluation_report_v4.md` for v1–v4 history.
 
 *Report v6 generated from `python model/train.py --all` (March 2026, v6 balanced class weights).
 Standard pool: LogisticRegression(C=0.01, balanced), accuracy=50.08%, macro F1=0.50, DOWN recall=0.61, 26 tickers, 16 features.
-Fallback pool: GradientBoostingClassifier (balanced sample weights), accuracy=54.86%, macro F1=0.46, DOWN recall=0.16, 5 tickers, 11 features.
+Fallback pool: GradientBoostingClassifier (balanced sample weights), accuracy=54.70%, macro F1=0.46, DOWN recall=0.16, 5 tickers, 11 features.
 Models: `model/trained/model_pooled.pkl` (LogReg) and `model/trained/model_pooled_fallback.pkl` (GBC).*
