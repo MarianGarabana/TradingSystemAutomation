@@ -335,7 +335,7 @@ if model is not None:
     style  = SIGNAL_STYLE[signal]
 
     # Signal + 4 metrics in one row: signal takes double width, metrics share the rest.
-    sig_col, m1, m2, m3, m4 = st.columns([2, 1, 1, 1, 1])
+    sig_col, m1, m2, m3, m4 = st.columns([1.5, 1, 1, 1, 1])
     with sig_col:
         st.markdown(
             f"<h1 style='color:{style['color']};margin:0'>"
@@ -359,8 +359,8 @@ if model is not None:
             tier_label = "☝️ Moderate conviction"
         else:
             tier_label = "🔥 Strong conviction"
-        st.caption(tier_label)
-        st.caption("*based on current model*")
+        st.markdown(f"<p style='font-size:15px;margin:0'>{tier_label}</p>", unsafe_allow_html=True)
+        st.caption("*Based on current model*")
 else:
     # Model file not found — app still works, just without a prediction.
     st.warning(
