@@ -98,11 +98,13 @@ st.divider()
 st.markdown(
     """
     <style>
-    div[data-testid="stHorizontalBlock"]:has(> div[data-testid="stColumn"]) {
+    div[data-testid="stHorizontalBlock"] {
         align-items: stretch;
     }
-    div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]
-        > div[data-testid="stVerticalBlockBorderWrapper"] {
+    div[data-testid="stColumn"] > div:first-child {
+        height: 100%;
+    }
+    div[data-testid="stVerticalBlockBorderWrapper"] {
         height: 100%;
     }
     </style>
