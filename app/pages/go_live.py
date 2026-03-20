@@ -334,33 +334,33 @@ if model is not None:
     signal = prediction_to_signal(pred_class, confidence)
     style  = SIGNAL_STYLE[signal]
 
-    # Render signal label in large coloured text.
-    sig_col, conf_col, *_ = st.columns([1, 2, 3])
+    # Signal + 4 metrics in one row: signal takes double width, metrics share the rest.
+    sig_col, m1, m2, m3, m4 = st.columns([2, 1, 1, 1, 1])
     with sig_col:
         st.markdown(
             f"<h1 style='color:{style['color']};margin:0'>"
             f"{style['emoji']} {style['label']}</h1>",
             unsafe_allow_html=True,
         )
-    # Signal Strength = |confidence − 0.50| / 0.50 × 100
-    # Three discrete bar levels using native st.progress() (theme accent color):
-    #   HOLD               → weak     → 1/3 bar (0.33)
-    #   BUY/SELL, str < 15 → moderate → 2/3 bar (0.66)
-    #   BUY/SELL, str ≥ 15 → strong   → full bar (1.00)
+    m1.metric("Latest Price", f"${last['Adj. Close']:.2f}")
+    m2.metric("Daily Return", fmt_pct(last["Return"]), delta=fmt_pct(last["Return"]))
+    m3.metric(
+        "RSI (14)", f"{last['RSI']:.1f}",
+        delta="Overbought" if last["RSI"] > 70 else ("Oversold" if last["RSI"] < 30 else "Neutral"),
+    )
+    m4.metric("Market Cap", fmt_large(last["Market_Cap"]))
+
+    # Conviction caption with emoji tier + dimmed note below.
     if confidence is not None:
-        with conf_col:
-            strength = abs(confidence - 0.50) / 0.50 * 100  # 0–100 scale
-            if signal == Signal.HOLD:
-                tier_label = "High uncertainty detected"
-                bar_fill = 0.33
-            elif strength < 15:
-                tier_label = "Moderate conviction"
-                bar_fill = 0.66
-            else:
-                tier_label = "Strong conviction"
-                bar_fill = 1.00
-            st.progress(bar_fill)
-            st.caption(tier_label)
+        strength = abs(confidence - 0.50) / 0.50 * 100
+        if signal == Signal.HOLD:
+            tier_label = "⚠️ High uncertainty detected"
+        elif strength < 15:
+            tier_label = "☝️ Moderate conviction"
+        else:
+            tier_label = "🔥 Strong conviction"
+        st.caption(tier_label)
+        st.caption("*based on current model*")
 else:
     # Model file not found — app still works, just without a prediction.
     st.warning(
@@ -368,18 +368,6 @@ else:
         "Run `python model/train.py --all` to generate one. "
         "Technical indicators are shown below in the meantime."
     )
-
-# ── Key metrics row ────────────────────────────────────────────────────────────
-# Four st.metric widgets in a row give a quick at-a-glance snapshot.
-# The 'delta' parameter adds the green/red directional arrow automatically.
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Latest Price",  f"${last['Adj. Close']:.2f}")
-m2.metric("Daily Return",  fmt_pct(last["Return"]), delta=fmt_pct(last["Return"]))
-m3.metric(
-    "RSI (14)", f"{last['RSI']:.1f}",
-    delta="Overbought" if last["RSI"] > 70 else ("Oversold" if last["RSI"] < 30 else "Neutral"),
-)
-m4.metric("Market Cap", fmt_large(last["Market_Cap"]))
 
 st.divider()
 
