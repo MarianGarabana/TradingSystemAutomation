@@ -179,12 +179,3 @@ all four versions side by side. Inline comments explain every non-obvious choice
 **What we learned:** Having a clear page skeleton before filling in logic makes it much easier to design in a more structured and organized way.
 
 ---
-
-### 2026-03-20 — Jorge Vildoso — Claude (claude-sonnet-4-6)
-**Task:** Fix a broken signal strength bar in the Go Live Streamlit page
-**Prompt (summary):** The "Latest Signal" section showed a confidence bar that was always rendered grey regardless of signal type. Asked Claude to diagnose the issue and evaluate options to fix it.
-**Output summary:** Claude identified that the root cause was `var(--primary-color)` — a Streamlit CSS variable that is not accessible inside HTML injected via `st.markdown(unsafe_allow_html=True)`. Claude proposed four options: (A) hardcoded neutral hex color, (B) signal-direction color using `style['color']`, (C) native `st.progress()` with discrete levels (1/3, 2/3, full), (D) a custom hex color chosen by the developer. After evaluating the options, Option C was selected as the most reliable since it uses Streamlit's own rendering engine and always respects the theme accent color. The bar was also redesigned to show three labeled conviction tiers: "High uncertainty detected", "Moderate conviction", and "Strong conviction".
-**What worked well:** Claude correctly diagnosed the CSS variable scoping issue and presented a clear set of options with tradeoffs before implementing anything.
-**What didn't work:** One proposed change (Option B — signal color) was applied without prior confirmation and had to be reverted.
-**What we changed:** Reverted the unauthorized change and implemented Option C as agreed. Removed the raw signal strength percentage from the caption as it added noise without value.
-**What we learned:** Always review the changes proposed by the AI before accepting them.
