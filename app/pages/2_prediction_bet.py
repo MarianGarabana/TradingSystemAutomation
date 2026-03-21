@@ -20,7 +20,6 @@ import os
 import sys
 
 import joblib
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import requests
@@ -655,6 +654,40 @@ def render_return_distribution(
     return fig
 
 
+# ── UI Helpers ─────────────────────────────────────────────────────────────────
+
+def _metric_card(
+    label: str,
+    value: str,
+    value_color: str = "#ffffff",
+    delta_text: str | None = None,
+    delta_positive: bool | None = None,
+    sub_text: str | None = None,
+) -> str:
+    """Return an HTML metric card that matches the app's dark theme."""
+    if delta_text is not None and delta_positive is not None:
+        dc    = "#00c805" if delta_positive else "#ff4b4b"
+        arrow = "▲" if delta_positive else "▼"
+        delta_html = (
+            f"<p style='margin:5px 0 0;font-size:13px;color:{dc};'>"
+            f"{arrow} {delta_text}</p>"
+        )
+    else:
+        delta_html = ""
+    sub_html = (
+        f"<p style='margin:4px 0 0;font-size:11px;color:#666;'>{sub_text}</p>"
+        if sub_text else ""
+    )
+    return (
+        f"<div style='background:#1a1a2e;border:1px solid rgba(255,255,255,0.12);"
+        f"border-radius:10px;padding:14px 16px;'>"
+        f"<p style='margin:0 0 6px;font-size:12px;color:#888;"
+        f"text-transform:uppercase;letter-spacing:0.6px;'>{label}</p>"
+        f"<p style='margin:0;font-size:22px;font-weight:700;color:{value_color};'>{value}</p>"
+        f"{delta_html}{sub_html}</div>"
+    )
+
+
 # ── Analysis Helpers ───────────────────────────────────────────────────────────
 
 def get_top_feature_drivers(
@@ -696,16 +729,15 @@ def interpret_feature(feature_name: str, z_score: float) -> str:
 
 # ── Page ───────────────────────────────────────────────────────────────────────
 
-st.info(
-    "ℹ️ **SIMULATION MODE** — This is a paper trading simulator that uses our historical "
-    "processed CSV data to show what *would have happened* over the most recent available "
-    "period. All results are hypothetical. **This is not financial advice.**"
-)
-
 st.title("🎯 Prediction Bet")
 st.markdown(
     "Pick a stock, choose UP or DOWN, set your stake and leverage, then let the AI signal "
     "guide you — and see what actually happened with the most recent market data."
+)
+st.info(
+    "ℹ️ **SIMULATION MODE** — This is a paper trading simulator that uses our historical "
+    "processed CSV data to show what *would have happened* over the most recent available "
+    "period. All results are hypothetical. **This is not financial advice.**"
 )
 
 st.divider()
@@ -784,9 +816,10 @@ simulate_btn = st.button(
 # ── Simulation ─────────────────────────────────────────────────────────────────
 
 if simulate_btn:
-    # Try the SimFin API first so the simulation uses today's real data.
-    # Falls back to the local CSV automatically if the API is unavailable.
-    df, data_source = load_ticker_data(ticker, n_days)
+    with st.spinner("Running simulation..."):
+        # Try the SimFin API first so the simulation uses today's real data.
+        # Falls back to the local CSV automatically if the API is unavailable.
+        df, data_source = load_ticker_data(ticker, n_days)
 
     if df.empty:
         st.error(f"No data found for {ticker}. Run the ETL pipeline first.")
@@ -963,37 +996,6 @@ if simulate_btn:
 
     # ── Key metrics (custom HTML cards) ────────────────────────────────────────
     st.divider()
-
-    def _metric_card(
-        label: str,
-        value: str,
-        value_color: str = "#ffffff",
-        delta_text: str | None = None,
-        delta_positive: bool | None = None,
-        sub_text: str | None = None,
-    ) -> str:
-        """Return an HTML metric card that matches the app's dark theme."""
-        if delta_text is not None and delta_positive is not None:
-            dc    = "#00c805" if delta_positive else "#ff4b4b"
-            arrow = "▲" if delta_positive else "▼"
-            delta_html = (
-                f"<p style='margin:5px 0 0;font-size:13px;color:{dc};'>"
-                f"{arrow} {delta_text}</p>"
-            )
-        else:
-            delta_html = ""
-        sub_html = (
-            f"<p style='margin:4px 0 0;font-size:11px;color:#666;'>{sub_text}</p>"
-            if sub_text else ""
-        )
-        return (
-            f"<div style='background:#1a1a2e;border:1px solid rgba(255,255,255,0.12);"
-            f"border-radius:10px;padding:14px 16px;'>"
-            f"<p style='margin:0 0 6px;font-size:12px;color:#888;"
-            f"text-transform:uppercase;letter-spacing:0.6px;'>{label}</p>"
-            f"<p style='margin:0;font-size:22px;font-weight:700;color:{value_color};'>{value}</p>"
-            f"{delta_html}{sub_html}</div>"
-        )
 
     m1, m2, m3, m4, m5 = st.columns(5)
 

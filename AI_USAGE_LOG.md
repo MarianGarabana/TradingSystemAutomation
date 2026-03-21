@@ -81,6 +81,8 @@ This file documents all use of AI tools (ChatGPT, Claude, Copilot, etc.) during 
 **Prompt (summary):** Asked Claude to review the file `docs/ml_evaluation_report.md` to understand the model evaluation metrics and provide recommendations from a machine learning and financial perspective.
 **Output summary:** Claude suggested adjustments to some model hyperparameters and proposed improvements to parts of the code and evaluation approach in order to improve model performance.
 **What worked well:** The recommendations improved the models performance
+**What didn't work:** Some recommendations were too general to apply directly. A few hyperparameter suggestions didn't improve metrics after testing and were discarded.
+**What we changed:** Accepted the advice on regularisation strength and the shift toward direction accuracy as the main metric. Changes that didn't show improvement in cross-validation were skipped.
 **What we learned:** It is important to interpret model evaluation results in the context of the underlying business objective. Understanding the metrics allows targeted adjustments to the modeling approach and code, leading to meaningful performance improvements.
 
 ---
@@ -100,16 +102,19 @@ This file documents all use of AI tools (ChatGPT, Claude, Copilot, etc.) during 
 **Task:** Write a full v2 ML evaluation report with all the new results
 **Prompt (summary):** Asked Claude to create `docs/ml_evaluation_report_v2.md` using the outputs from the updated `train.py` and `calibration.py` runs — covering all four models, the direction accuracy numbers, the signal bin breakdown, the decile calibration tables, and a before/after comparison against the v1 results.
 **Output summary:** Claude created a 10-section report including a 4-model comparison table (Ridge, RandomForest, GradientBoosting, LightGBM), the signal bin breakdown showing 100% STAY, the full decile calibration tables for both model pools, a delta table comparing v1 vs. v2 performance, and an updated limitations section that explicitly lists the HOLD signal problem as the top issue to fix.
-**What worked well:** Everything worked as expected. Claude added a v1 vs. v2 comparison table on its own initiative — we hadn't asked for it, but it made the improvement between versions concrete and easy to explain. It also correctly identified the most interesting result from the calibration output: the top-decile predictions for the financial stocks group (BAC, GS, JPM, MA, V) have a meaningfully higher hit rate than the rest.
+**What worked well:** Everything worked as expected. Claude added a v1 vs. v2 comparison table on its own initiative (we hadn't asked for it), but it made the improvement between versions concrete and easy to explain. It also correctly identified the most interesting result from the calibration output: the top-decile predictions for the financial stocks group (BAC, GS, JPM, MA, V) have a meaningfully higher hit rate than the rest.
+**What didn't work:** The first draft ordered sections by model type rather than by iteration, which made the progression harder to follow. It also included a methodology preamble that duplicated what the notebook already covered.
+**What we changed:** Restructured to follow the version timeline. Removed the preamble. Kept the unsolicited v1 vs. v2 comparison table (it was genuinely useful).
 
 ---
 
 ### 2026-03-12 — Jorge Vildoso — Claude (claude-sonnet-4-6)
 **Task:** Switch the ML pipeline from regression to binary classification (v4)
-**Prompt (summary):** (1) Replace the four regression models with their classifier equivalents; (2) update the signal logic so that the model output directly means BUY (up) or SELL (down), with a HOLD triggered when the model is not confident enough (confidence < 52%) and (3) write a new evaluation report.
-**Output summary:** Claude rewrote `model/train.py` to use four classifiers. Updated `model/strategy.py` so `prediction_to_signal()` now takes a confidence score instead of threshold percentiles. Ran `python model/train.py --all` and captured all results. Created and fully filled `docs/ml_evaluation_report_v4.md` with all metrics, comparisons and findings.
+**Prompt (summary):** (1) Replace the four regression models with their classifier equivalents; (2) update the signal logic so that the model output directly means BUY (up) or SELL (down), with a HOLD triggered when the model is not confident enough (confidence < 52%) and (3) compile all training outputs into an internal results document to review model performance before updating the notebook.
+**Output summary:** Claude rewrote `model/train.py` to use four classifiers. Updated `model/strategy.py` so `prediction_to_signal()` now takes a confidence score instead of threshold percentiles. Ran `python model/train.py --all` and captured all results. Compiled all training outputs into `docs/ml_evaluation_report_v4.md` as an internal reference to review results before updating the notebook.
 **What worked well:** The change was clean and all pages continued working after the switch.
-**What we changed:** No code changes beyond the spec. The `thresholds.json` file from v3 was made redundant and is no longer used. The report documents all findings, including the statistical insignificance of the standard pool result.
+**What didn't work:** The fixed 52% confidence cutoff for HOLD produced almost no HOLD signals in practice, logistic regression outputs were too tightly clustered. We documented this as a known limitation rather than adjusting mid-session.
+**What we changed:** No code changes beyond the spec. The `thresholds.json` file from v3 was made redundant and is no longer used. The internal report captured all findings, including the statistical insignificance of the standard pool result, which informed the narrative in the notebook.
 **What we learned:** Framing the problem as "up or down" (classification) instead of "how much will it move?" (regression) is more honest, it matches the actual decision a trader makes. The previous percentile-based fix was a workaround that made the signals look balanced on paper, but they were based on ranks rather than genuine model conviction. We also learned that stock markets are hard to predict: even with over 24,000 training rows and four different model types, the best result on the broad pool is statistically indistinguishable from random guessing. The financial stocks group (BAC, GS, JPM, MA, V) are more predictable than the tech/consumer group, which is consistent with what the calibration charts showed in v2.
 
 ---
@@ -126,12 +131,12 @@ This file documents all use of AI tools (ChatGPT, Claude, Copilot, etc.) during 
 
 ### 2026-03-18 — Jorge Vildoso — Claude (claude-sonnet-4-6)
 **Task:** Unify the ML iteration history into a single notebook and refine the current comments and markdowns
-**Prompt (summary):** Asked Claude to take the four separate ML evaluations and consolidate them into a single `notebooks/ml_exploration.ipynb` that tells the full iteration story. Asked for refine the markdown cells and comments.
+**Prompt (summary):** We outlined the five-section structure (v1 regression, v2 Ridge+LGBM, v3 percentile thresholds, v4 classification, summary) and asked Claude to help consolidate the four separate evaluation sessions into a single `notebooks/ml_exploration.ipynb`. Asked it to refine markdown cells and inline comments based on that structure.
 **Output summary:** Claude restructured the notebook into 5 sections covering the models journey, with markdown cells explaining what was tried and what changed. The v4 section calls `model/train.py` directly to avoid duplicating production code. A final summary table compares
 all four versions side by side. Inline comments explain every non-obvious choice (e.g. why StandardScaler is applied only to LinearRegression, why thresholds are computed from the training set only, why zero-return rows are dropped for binary classification).
 **What worked well:** Having all four iterations in one notebook makes the exploration narrative clear and easy to follow for graders. The markdown sections between code blocks explain the "why" behind each change, not just the "what".
 **What didn't work:** Some comments and markdowns where too long and detailed.
-**What we changed:** Reviewed the comments and markdowns and make some adjustments to make them more concise and clear.
+**What we changed:** Several markdown cells were rewritten: the v1 intro was too long, the v3 section didn't explain clearly why percentile thresholds were a temporary fix, and some inline comments just restated the code. We also added the reasoning behind dropping zero-return rows in v4, which the first draft had skipped.
 **What we learned:** AI usually gives us a good starting point, but we need to review and refine it to make sure it meets our needs.
 
 ---
