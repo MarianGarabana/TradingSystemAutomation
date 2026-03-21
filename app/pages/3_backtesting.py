@@ -92,6 +92,7 @@ def compute_oos_start_date(df: pd.DataFrame, ticker: str) -> date:
     return clean.iloc[split_idx]["Date"].date()
 
 
+@st.cache_resource
 def load_model(ticker: str):
     """Load the correct pooled model for the given ticker.
 
