@@ -347,7 +347,7 @@ def render_confidence_gauge(confidence: float, signal: Signal) -> go.Figure:
         value=round(confidence * 100, 1),
         title={
             "text": (
-                f"Model Confidence<br>"
+                f"Prediction Score<br>"
                 f"<span style='font-size:0.85em;color:{color}'>"
                 f"{SIGNAL_STYLE[signal]['emoji']} {label}</span>"
             ),
@@ -673,10 +673,11 @@ def _metric_card(
             f"{arrow} {delta_text}</p>"
         )
     else:
-        delta_html = ""
+        delta_html = "<p style='margin:5px 0 0;font-size:13px;'>&nbsp;</p>"
     sub_html = (
         f"<p style='margin:4px 0 0;font-size:11px;color:#666;'>{sub_text}</p>"
-        if sub_text else ""
+        if sub_text else
+        "<p style='margin:4px 0 0;font-size:11px;'>&nbsp;</p>"
     )
     return (
         f"<div style='background:#1a1a2e;border:1px solid rgba(255,255,255,0.12);"
@@ -984,7 +985,7 @@ if simulate_btn:
                 f"<p style='text-align:center;font-size:13px;color:{agree_color};'>"
                 f"{agree_icon} {agree_text} "
                 f"(Model: {SIGNAL_STYLE[signal]['emoji']} {signal.value}, "
-                f"confidence {confidence*100:.0f}%)</p>",
+                f"score {confidence*100:.0f}%)</p>",
                 unsafe_allow_html=True,
             )
 

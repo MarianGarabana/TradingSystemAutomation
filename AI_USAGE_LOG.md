@@ -195,3 +195,12 @@ all four versions side by side. Inline comments explain every non-obvious choice
 **What we learned:** Having a clear page skeleton before filling in logic makes it much easier to design in a more structured and organized way.
 
 ---
+
+### 2026-03-21 — Jorge Vildoso — Claude (claude-sonnet-4-6)
+**Task:** Code review and minor UI improvements across the Streamlit app pages
+**Prompt (summary):** Asked Claude to review the layout of all four Streamlit pages and flag any issues or improvement opportunities based on best practices.
+**Output summary:** Claude reviewed `Home.py`, `go_live.py`, `prediction_bet.py`, and `backtesting.py` and identified a list of small issues grouped by effort level. From the low-effort group: a helper function defined inside a conditional block instead of at module level, a loading spinner missing from the main action button, a page title rendering below an info banner instead of above it, an unused import and the wrong Streamlit caching decorator on a model loader.
+**What worked well:** The analysis was well-structured and practical. Each issue came with a clear explanation of why it mattered and what file and line to look at, which made the review easy to follow.
+**What didn't work:** Nothing failed.
+**What we changed:** All proposed low-effort fixes were applied after reviewing each one.
+**What we learned:** Doing a focused code review pass with AI is a good way to catch small inconsistencies that are easy to miss when you're deep in the implementation. Things like mismatched caching decorators or a function buried where it's hard to find.
