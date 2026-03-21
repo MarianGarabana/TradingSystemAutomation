@@ -8,18 +8,19 @@ A machine learning–based stock trading prediction system built with SimFin fin
 
 | Name | Role |
 |------|------|
-| *Marian Garabana* | ETL / Data Engineering |
-| *Jorge Vildoso* | ML Model |
-| *TBD* | API Wrapper |
-| *Marian Garabana* | Streamlit App |
+| *Jorge Vildoso, Yaxin Wu* | ETL / Data Engineering |
+| *Jorge Vildoso, Lorenz Rösguen, Omar Ajlouni* | ML Model |
+| *Marian Garabana, Omar Ajlouni* | API Wrapper |
+| *Marian Garabana, Marco Ortiz* | Streamlit App |
 
 ## Project Overview
 
-This project builds an end-to-end pipeline that:
-1. Fetches financial data via the SimFin API
-2. Cleans and engineers features (ETL)
-3. Trains a predictive ML model per ticker
-4. Serves predictions through a Streamlit web app
+End-to-end pipeline for predicting next-day stock signals across 31 large-cap US tickers:
+
+1. Fetches financial data from SimFin (bulk CSVs for training, live API for predictions)
+2. Cleans and engineers 22 features covering price, volume, and fundamentals (ETL)
+3. Trains two pooled classification models that output BUY / SELL / HOLD signals
+4. Serves predictions through a Streamlit web app with backtesting support
 
 ## Setup
 
@@ -55,7 +56,7 @@ trading-app/
 ├── .env.example
 ├── data/
 │   ├── raw/            # git-ignored — SimFin bulk CSVs (download locally)
-│   └── processed/      # committed — 31 per-ticker processed CSVs (ETL output)
+│   └── processed/      # committed — 31 per-ticker processed CSVs (ETL output, one per ticker)
 ├── notebooks/
 │   ├── etl_exploration.ipynb
 │   └── ml_exploration.ipynb
@@ -73,12 +74,12 @@ trading-app/
 │       ├── go_live.py
 │       └── backtesting.py
 └── docs/
-    └── executive_summary.pdf
+    └── Trading System Automation_Executive_Summary.pdf
 ```
 
 ## Data
 
-Raw data is downloaded from [SimFin](https://simfin.com/) and stored locally in `data/raw/` — this folder is **git-ignored** and must be downloaded locally. Processed CSVs (`data/processed/`) are committed to the repo and contain the ETL output (one CSV per ticker, 22 features + Target).
+Raw data comes from [SimFin](https://simfin.com/) and lives in `data/raw/`, which is git-ignored and must be downloaded locally. Processed CSVs in `data/processed/` are committed and contain the ETL output (one file per ticker, 22 features + Target).
 
 ## AI Usage
 
