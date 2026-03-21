@@ -373,7 +373,7 @@ def render_confidence_gauge(confidence: float, signal: Signal) -> go.Figure:
             "threshold": {
                 "line": {"color": "#ffd600", "width": 3},
                 "thickness": 0.75,
-                "value": 52,  # the minimum confidence to act (matches strategy.py)
+                "value": 51,  # the minimum confidence to act (matches strategy.py)
             },
         },
     ))
