@@ -9,7 +9,7 @@ A machine learning–based stock trading prediction system built with SimFin fin
 | Name | Role |
 |------|------|
 | *Jorge Vildoso, Yaxin Wu* | ETL / Data Engineering |
-| *Jorge Vildoso, Lorenz Rösguen, Omar Ajlouni* | ML Model |
+| *Jorge Vildoso, Lorenz Rösgen, Omar Ajlouni* | ML Model |
 | *Marian Garabana, Omar Ajlouni* | API Wrapper |
 | *Marian Garabana, Marco Ortiz* | Streamlit App |
 
