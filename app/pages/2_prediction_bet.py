@@ -1051,134 +1051,135 @@ if simulate_btn:
             unsafe_allow_html=True,
         )
 
-    # ── Signal drivers chart (under the metric cards) ─────────────────────────
-    if top_features:
-        st.divider()
+    # ── Tabs: deeper analysis below the always-visible result cards ───────────
+    st.divider()
+    tab_chart, tab_analysis, tab_history = st.tabs(
+        ["📈 Price Chart", "🧠 Analysis", "📚 Historical Context"]
+    )
+
+    # ── Tab 1: Price chart ─────────────────────────────────────────────────────
+    with tab_chart:
+        fig_chart = render_price_chart(
+            df_period, ticker, horizon_clean, entry_date, exit_date, price_col
+        )
+        st.plotly_chart(fig_chart, use_container_width=True)
+
+    # ── Tab 2: Analysis ────────────────────────────────────────────────────────
+    with tab_analysis:
         sig_emoji = SIGNAL_STYLE[signal]["emoji"]
         sig_label = SIGNAL_STYLE[signal]["label"]
-        drivers_col, explain_col = st.columns([3, 2])
 
-        with drivers_col:
-            st.markdown(f"#### 📡 Signal Drivers — {sig_emoji} {sig_label}")
-            st.caption(
-                f"Entry date: {pd.Timestamp(entry_date).strftime('%b %d, %Y')}. "
-                "Bars show how many standard deviations (σ) each feature was "
-                "away from its historical average at the moment the model predicted."
-            )
-            fig_feat = render_feature_chart(top_features)
-            st.plotly_chart(fig_feat, use_container_width=True)
+        if model is None:
+            st.info("Train the model (`python model/train.py --all`) to see the AI signal.")
 
-        with explain_col:
-            st.markdown("#### How to Read This")
-            st.markdown(
-                "Each bar represents one of the features the model used to make "
-                "its prediction. The number on each bar (e.g. **+1.8σ**) shows "
-                "how unusual that feature value was:\n\n"
-                "- **Positive bar (green)** → feature was above its historical average\n"
-                "- **Negative bar (red)** → feature was below its historical average\n"
-                "- **Longer bar** → stronger deviation, bigger influence on the signal\n\n"
-                "A σ (sigma) of ±1 means the value was in the top/bottom ~16% of "
-                "all historical observations for this stock."
-            )
+        if top_features:
+            drivers_col, explain_col = st.columns([3, 2])
 
-    # ── Price chart (full width) ───────────────────────────────────────────────
-    st.divider()
-    fig_chart = render_price_chart(
-        df_period, ticker, horizon_clean, entry_date, exit_date, price_col
-    )
-    st.plotly_chart(fig_chart, use_container_width=True)
+            with drivers_col:
+                st.markdown(f"#### 📡 Signal Drivers — {sig_emoji} {sig_label}")
+                st.caption(
+                    f"Entry date: {pd.Timestamp(entry_date).strftime('%b %d, %Y')}. "
+                    "Bars show how many standard deviations (σ) each feature was "
+                    "away from its historical average at the moment the model predicted."
+                )
+                st.plotly_chart(render_feature_chart(top_features), use_container_width=True)
 
-    # ── Feature explanation cards ──────────────────────────────────────────────
-    sig_emoji = SIGNAL_STYLE[signal]["emoji"]
-    sig_label = SIGNAL_STYLE[signal]["label"]
-    st.markdown(f"### 🧠 Why the Model Said {sig_emoji} {sig_label}")
-    st.caption(
-        "The three features that deviated most from their historical average on the "
-        "entry date — these most likely drove the model's signal."
-    )
-
-    if model is None:
-        st.info("Train the model (`python model/train.py --all`) to see the AI signal.")
-
-    if top_features:
-        feat_cols = st.columns(len(top_features))
-        for col, (feat_name, z_score) in zip(feat_cols, top_features):
-            with col:
-                icon       = "🔺" if z_score > 0 else "🔻"
-                card_color = "#00c805" if z_score > 0 else "#ff4b4b"
-                text       = interpret_feature(feat_name, z_score)
+            with explain_col:
+                st.markdown("#### How to Read This")
                 st.markdown(
-                    f"<div style='background:#1a1a2e;border:1px solid rgba(255,255,255,0.1);"
-                    f"border-left:4px solid {card_color};border-radius:8px;"
-                    f"padding:14px 16px;height:100%;'>"
-                    f"<p style='margin:0 0 8px;font-size:15px;font-weight:700;color:#fff;'>"
-                    f"{icon} {feat_name}</p>"
-                    f"<p style='margin:0 0 8px;'>"
-                    f"<code style='font-size:13px;color:{card_color};"
-                    f"background:rgba(255,255,255,0.08);padding:3px 8px;"
-                    f"border-radius:4px;'>{z_score:+.2f}σ</code></p>"
-                    f"<p style='margin:0;font-size:13px;color:#cccccc;line-height:1.55;'>"
-                    f"{text}</p>"
-                    f"</div>",
-                    unsafe_allow_html=True,
+                    "Each bar represents one of the features the model used to make "
+                    "its prediction. The number on each bar (e.g. **+1.8σ**) shows "
+                    "how unusual that feature value was:\n\n"
+                    "- **Positive bar (green)** → feature was above its historical average\n"
+                    "- **Negative bar (red)** → feature was below its historical average\n"
+                    "- **Longer bar** → stronger deviation, bigger influence on the signal\n\n"
+                    "A σ (sigma) of ±1 means the value was in the top/bottom ~16% of "
+                    "all historical observations for this stock."
                 )
 
-    # ── Return distribution histogram ─────────────────────────────────────────
-    st.divider()
-    st.markdown("### 📈 Where Does Your Return Rank Historically?")
-    st.caption(
-        f"Distribution of all historical {horizon_clean.lower()} returns for {ticker} "
-        f"(based on {len(df_full):,} days of data). The dashed line marks your simulation's result."
-    )
-    fig_dist = render_return_distribution(df_full, actual_return, n_days, horizon_clean, ticker)
-    st.plotly_chart(fig_dist, use_container_width=True)
-
-    # ── Scenario comparison table ──────────────────────────────────────────────
-    st.divider()
-    st.markdown("### 📊 What If You'd Used Different Leverage?")
-    st.caption(
-        f"Same bet direction ({direction}) and amount (${amount:,.0f}) — only leverage varies."
-    )
-
-    scenario_rows = []
-    for lev in [1, 2, 5, 10]:
-        lev_ret   = max(signed_return * lev, -1.0)
-        lev_pnl   = amount * lev_ret
-        lev_final = amount + lev_pnl
-        scenario_rows.append({
-            "Leverage":         f"{lev}x  {'◀ your pick' if lev == leverage else ''}",
-            "Invested":         f"${amount:,.0f}",
-            "Leveraged Return": f"{lev_ret*100:+.1f}%",
-            "P&L":              f"{'+'if lev_pnl>=0 else ''} ${lev_pnl:,.2f}",
-            "Final Amount":     f"${lev_final:,.2f}",
-            "Outcome":          "✅ Win" if won else "❌ Loss",
-        })
-
-    st.dataframe(
-        pd.DataFrame(scenario_rows),
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    # ── Historical model accuracy for this ticker ──────────────────────────────
-    st.divider()
-    if win_rate is not None:
-        acc_pct   = win_rate * 100
-        acc_color = "#00c805" if acc_pct > 55 else ("#ffd600" if acc_pct > 50 else "#ff4b4b")
-        st.markdown(
-            f"<p style='text-align:center;font-size:15px;'>"
-            f"📈 On <b>{ticker}</b>, the model correctly predicted the next-day direction "
-            f"<b style='color:{acc_color};'>{acc_pct:.1f}%</b> of the time "
-            f"across its <b>{n_oos:,}</b> out-of-sample trading days.  "
-            f"<span style='color:#888;'>(Accuracy above 50% means the model "
-            f"beats a random coin flip.)</span></p>",
-            unsafe_allow_html=True,
+        st.markdown(f"### Why the Model Said {sig_emoji} {sig_label}")
+        st.caption(
+            "The three features that deviated most from their historical average on the "
+            "entry date — these most likely drove the model's signal."
         )
-    else:
-        st.caption("Historical accuracy not available — train the model first.")
+
+        if top_features:
+            feat_cols = st.columns(len(top_features))
+            for col, (feat_name, z_score) in zip(feat_cols, top_features):
+                with col:
+                    icon       = "🔺" if z_score > 0 else "🔻"
+                    card_color = "#00c805" if z_score > 0 else "#ff4b4b"
+                    text       = interpret_feature(feat_name, z_score)
+                    st.markdown(
+                        f"<div style='background:#1a1a2e;border:1px solid rgba(255,255,255,0.1);"
+                        f"border-left:4px solid {card_color};border-radius:8px;"
+                        f"padding:14px 16px;height:100%;'>"
+                        f"<p style='margin:0 0 8px;font-size:15px;font-weight:700;color:#fff;'>"
+                        f"{icon} {feat_name}</p>"
+                        f"<p style='margin:0 0 8px;'>"
+                        f"<code style='font-size:13px;color:{card_color};"
+                        f"background:rgba(255,255,255,0.08);padding:3px 8px;"
+                        f"border-radius:4px;'>{z_score:+.2f}σ</code></p>"
+                        f"<p style='margin:0;font-size:13px;color:#cccccc;line-height:1.55;'>"
+                        f"{text}</p>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+
+    # ── Tab 3: Historical context ──────────────────────────────────────────────
+    with tab_history:
+        st.markdown("### 📈 Where Does Your Return Rank Historically?")
+        st.caption(
+            f"Distribution of all historical {horizon_clean.lower()} returns for {ticker} "
+            f"(based on {len(df_full):,} days of data). The dashed line marks your simulation's result."
+        )
+        fig_dist = render_return_distribution(df_full, actual_return, n_days, horizon_clean, ticker)
+        st.plotly_chart(fig_dist, use_container_width=True)
+
+        st.divider()
+        st.markdown("### 📊 What If You'd Used Different Leverage?")
+        st.caption(
+            f"Same bet direction ({direction}) and amount (${amount:,.0f}) — only leverage varies."
+        )
+
+        scenario_rows = []
+        for lev in [1, 2, 5, 10]:
+            lev_ret   = max(signed_return * lev, -1.0)
+            lev_pnl   = amount * lev_ret
+            lev_final = amount + lev_pnl
+            scenario_rows.append({
+                "Leverage":         f"{lev}x  {'◀ your pick' if lev == leverage else ''}",
+                "Invested":         f"${amount:,.0f}",
+                "Leveraged Return": f"{lev_ret*100:+.1f}%",
+                "P&L":              f"{'+'if lev_pnl>=0 else ''} ${lev_pnl:,.2f}",
+                "Final Amount":     f"${lev_final:,.2f}",
+                "Outcome":          "✅ Win" if won else "❌ Loss",
+            })
+
+        st.dataframe(
+            pd.DataFrame(scenario_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.divider()
+        if win_rate is not None:
+            acc_pct   = win_rate * 100
+            acc_color = "#00c805" if acc_pct > 55 else ("#ffd600" if acc_pct > 50 else "#ff4b4b")
+            st.markdown(
+                f"<p style='text-align:center;font-size:15px;'>"
+                f"📈 On <b>{ticker}</b>, the model correctly predicted the next-day direction "
+                f"<b style='color:{acc_color};'>{acc_pct:.1f}%</b> of the time "
+                f"across its <b>{n_oos:,}</b> out-of-sample trading days.  "
+                f"<span style='color:#888;'>(Accuracy above 50% means the model "
+                f"beats a random coin flip.)</span></p>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.caption("Historical accuracy not available — train the model first.")
 
     # ── Disclaimer footer ──────────────────────────────────────────────────────
-    st.markdown("---")
+    st.divider()
     st.caption(
         "⚠️ All results shown are based on historical data and are hypothetical. "
         "Past performance does not guarantee future results. "
