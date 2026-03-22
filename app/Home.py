@@ -10,6 +10,7 @@ import os
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import streamlit.components.v1 as components
 
 st.set_page_config(
     page_title="Trading System Automation",
@@ -184,6 +185,14 @@ with tab3:
         shows a ⚠️ badge so you always know the data freshness.
         """
     )
+
+# ── Architecture diagram ───────────────────────────────────────────────────────
+diagram_path = os.path.join(os.path.dirname(__file__), "assets", "architecture_diagram.html")
+if os.path.exists(diagram_path):
+    with open(diagram_path, "r", encoding="utf-8") as f:
+        components.html(f.read(), height=600, scrolling=True)
+else:
+    st.caption("Architecture diagram not found.")
 
 st.divider()
 
