@@ -138,58 +138,60 @@ st.divider()
 # ── How it works ───────────────────────────────────────────────────────────────
 st.subheader("How it works")
 
-tab1, tab2, tab3 = st.tabs(["📥 Data & ETL", "🧠 ML model", "🌐 Live predictions"])
-
-with tab1:
-    st.markdown(
-        """
-        We download **5 years of daily price data** (2020–2024) from SimFin's bulk download
-        for 29 US companies across four sectors. The ETL pipeline:
-
-        1. **Cleans** price errors — outlier returns are detected and forward-filled
-        2. **Engineers technical indicators** — moving averages, RSI, MACD, Bollinger Bands,
-           volatility-normalised returns, and quarterly fundamental ratios (margins, leverage, cash flow)
-        3. **Exports** a clean processed CSV per ticker, ready for model training
-        """
-    )
-
-with tab2:
-    st.markdown(
-        """
-        We train **two pooled classification models**, one per ticker group:
-
-        - **Standard model** — 26 tickers (Technology, Healthcare, Consumer)
-        - **Fallback model** — 5 Financial tickers (Banks & Payment Networks)
-
-        Four candidate algorithms are evaluated — Logistic Regression, Random Forest,
-        Gradient Boosting, and LightGBM — using **time-series cross-validation**
-        (no look-ahead bias). The best-performing model is exported as a `.pkl` file.
-
-        **Target:** next-day direction — price goes up (1) or down (0).
-        """
-    )
-
-with tab3:
-    st.markdown(
-        """
-        When you open the **Go Live** page:
-
-        1. The app fetches the last 200 days of prices from the **SimFin API** (live)
-        2. The same ETL transformations are applied — guaranteeing feature consistency
-           with what the model was trained on (no train/serve skew)
-        3. The exported model predicts tomorrow's price direction
-        4. A **BUY / SELL / HOLD** signal is generated based on prediction confidence
-
-        If the API is unavailable, the app falls back to the latest processed CSV and
-        shows a ⚠️ badge so you always know the data freshness.
-        """
-    )
-
-# ── Architecture diagram ───────────────────────────────────────────────────────
 diagram_path = os.path.join(os.path.dirname(__file__), "assets", "Serving_layer_diagram.png")
-if os.path.exists(diagram_path):
-    _, col, _ = st.columns([1, 2, 1])
-    col.image(diagram_path, use_container_width=True)
+col_diagram, col_tabs = st.columns([1, 1], gap="large")
+
+with col_diagram:
+    if os.path.exists(diagram_path):
+        st.image(diagram_path, use_container_width=True)
+
+with col_tabs:
+    tab1, tab2, tab3 = st.tabs(["📥 Data & ETL", "🧠 ML model", "🌐 Live predictions"])
+
+    with tab1:
+        st.markdown(
+            """
+            We download **5 years of daily price data** (2020–2024) from SimFin's bulk download
+            for 29 US companies across four sectors. The ETL pipeline:
+
+            1. **Cleans** price errors — outlier returns are detected and forward-filled
+            2. **Engineers technical indicators** — moving averages, RSI, MACD, Bollinger Bands,
+               volatility-normalised returns, and quarterly fundamental ratios (margins, leverage, cash flow)
+            3. **Exports** a clean processed CSV per ticker, ready for model training
+            """
+        )
+
+    with tab2:
+        st.markdown(
+            """
+            We train **two pooled classification models**, one per ticker group:
+
+            - **Standard model** — 26 tickers (Technology, Healthcare, Consumer)
+            - **Fallback model** — 5 Financial tickers (Banks & Payment Networks)
+
+            Four candidate algorithms are evaluated — Logistic Regression, Random Forest,
+            Gradient Boosting, and LightGBM — using **time-series cross-validation**
+            (no look-ahead bias). The best-performing model is exported as a `.pkl` file.
+
+            **Target:** next-day direction — price goes up (1) or down (0).
+            """
+        )
+
+    with tab3:
+        st.markdown(
+            """
+            When you open the **Go Live** page:
+
+            1. The app fetches the last 200 days of prices from the **SimFin API** (live)
+            2. The same ETL transformations are applied — guaranteeing feature consistency
+               with what the model was trained on (no train/serve skew)
+            3. The exported model predicts tomorrow's price direction
+            4. A **BUY / SELL / HOLD** signal is generated based on prediction confidence
+
+            If the API is unavailable, the app falls back to the latest processed CSV and
+            shows a ⚠️ badge so you always know the data freshness.
+            """
+        )
 
 st.divider()
 
