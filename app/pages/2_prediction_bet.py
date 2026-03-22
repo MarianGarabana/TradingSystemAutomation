@@ -32,11 +32,6 @@ try:
 except ImportError:
     LOTTIE_AVAILABLE = False
 
-try:
-    from streamlit_extras.metric_cards import style_metric_cards  # type: ignore
-    EXTRAS_AVAILABLE = True
-except ImportError:
-    EXTRAS_AVAILABLE = False
 
 # Add project root to sys.path so we can import from model/ and etl/.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
