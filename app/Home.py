@@ -10,9 +10,6 @@ import os
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-import streamlit.components.v1 as components
-
-ARCHITECTURE_DIAGRAM_URL = "https://claude.ai/public/artifacts/6c6f38bb-fabc-48e5-ac7a-d020c70f921a"
 
 st.set_page_config(
     page_title="Trading System Automation",
@@ -189,7 +186,9 @@ with tab3:
     )
 
 # ── Architecture diagram ───────────────────────────────────────────────────────
-components.iframe(ARCHITECTURE_DIAGRAM_URL, height=600, scrolling=True)
+diagram_path = os.path.join(os.path.dirname(__file__), "assets", "Serving_layer_diagram.png")
+if os.path.exists(diagram_path):
+    st.image(diagram_path, use_container_width=True)
 
 st.divider()
 
