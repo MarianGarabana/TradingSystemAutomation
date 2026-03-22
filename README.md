@@ -74,6 +74,8 @@ TradingSystemAutomation/
 │   └── pysimfin.py
 ├── app/
 │   ├── Home.py
+│   ├── assets/
+│   │   └── Serving_layer_diagram.png
 │   └── pages/
 │       ├── 1_go_live.py
 │       ├── 2_prediction_bet.py
