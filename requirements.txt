@@ -12,7 +12,6 @@ lightgbm>=4.0.0
 streamlit>=1.30.0
 plotly>=5.18.0
 streamlit-lottie>=0.0.5
-streamlit-extras>=0.3.0
 
 # Utilities
 python-dotenv>=1.0.0

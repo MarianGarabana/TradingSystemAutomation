@@ -37,7 +37,8 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 # Copy the environment template and fill in your API key
-cp .env.example .env
+cp .env.example .env      # macOS/Linux
+copy .env.example .env    # Windows
 ```
 
 ## Running the App
