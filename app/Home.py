@@ -188,7 +188,8 @@ with tab3:
 # ── Architecture diagram ───────────────────────────────────────────────────────
 diagram_path = os.path.join(os.path.dirname(__file__), "assets", "Serving_layer_diagram.png")
 if os.path.exists(diagram_path):
-    st.image(diagram_path, use_container_width=True)
+    col, _ = st.columns([1, 1])
+    col.image(diagram_path, use_container_width=True)
 
 st.divider()
 
