@@ -12,6 +12,8 @@ import plotly.express as px
 import streamlit as st
 import streamlit.components.v1 as components
 
+ARCHITECTURE_DIAGRAM_URL = "https://claude.ai/public/artifacts/6c6f38bb-fabc-48e5-ac7a-d020c70f921a"
+
 st.set_page_config(
     page_title="Trading System Automation",
     page_icon="📈",
@@ -187,12 +189,7 @@ with tab3:
     )
 
 # ── Architecture diagram ───────────────────────────────────────────────────────
-diagram_path = os.path.join(os.path.dirname(__file__), "assets", "architecture_diagram.html")
-if os.path.exists(diagram_path):
-    with open(diagram_path, "r", encoding="utf-8") as f:
-        components.html(f.read(), height=600, scrolling=True)
-else:
-    st.caption("Architecture diagram not found.")
+components.iframe(ARCHITECTURE_DIAGRAM_URL, height=600, scrolling=True)
 
 st.divider()
 
