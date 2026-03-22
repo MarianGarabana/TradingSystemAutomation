@@ -49,11 +49,13 @@ streamlit run app/Home.py
 ## Project Structure
 
 ```
-trading-app/
+TradingSystemAutomation/
 ├── README.md
 ├── requirements.txt
 ├── AI_USAGE_LOG.md
 ├── .env.example
+├── .streamlit/
+│   └── config.toml
 ├── data/
 │   ├── raw/            # git-ignored — SimFin bulk CSVs (download locally)
 │   └── processed/      # committed — 31 per-ticker processed CSVs (ETL output, one per ticker)
@@ -65,14 +67,16 @@ trading-app/
 ├── model/
 │   ├── train.py
 │   ├── strategy.py
+│   ├── calibration.py
 │   └── trained/
 ├── api_wrapper/
 │   └── pysimfin.py
 ├── app/
 │   ├── Home.py
 │   └── pages/
-│       ├── go_live.py
-│       └── backtesting.py
+│       ├── 1_go_live.py
+│       ├── 2_prediction_bet.py
+│       └── 3_backtesting.py
 └── docs/
     └── Trading System Automation_Executive_Summary.pdf
 ```
